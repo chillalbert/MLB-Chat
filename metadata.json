@@ -1,0 +1,8 @@
+{
+  "name": "SportsSquare Chat",
+  "description": "A private, code-based chat application with administrative controls and real-time simulation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
