@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, ChatRoom, AppState, Message, GameRecord } from './types';
 import { ADMIN_EMAIL } from './constants';
 import { getChatData, saveChatData, getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
@@ -12,27 +12,29 @@ const App: React.FC = () => {
   const [chatRoom, setChatRoom] = useState<ChatRoom>(getChatData());
   const [view, setView] = useState<AppState>(AppState.AUTH);
   
-  // Persistence listener for chatRoom changes
+  // Sync state to localStorage whenever chatRoom changes
   useEffect(() => {
     saveChatData(chatRoom);
   }, [chatRoom]);
 
-  // Initial Load & Session Recovery
+  // Handle Session Recovery on Mount
   useEffect(() => {
     const savedUser = getCurrentUser();
-    const room = getChatData();
-    setChatRoom(room);
+    const currentRoom = getChatData();
+    setChatRoom(currentRoom);
 
     if (savedUser) {
-      const normalizedEmail = savedUser.email.toLowerCase();
-      // Important: Prioritize the data from the room's member list (source of truth)
-      const memberInRoom = room.members.find(m => m.email.toLowerCase() === normalizedEmail);
+      const email = savedUser.email.toLowerCase();
+      // Check if this user is a registered member of the dugout
+      const memberMatch = currentRoom.members.find(m => m.email.toLowerCase() === email);
       
-      if (memberInRoom) {
-        setCurrentUser(memberInRoom);
+      if (memberMatch) {
+        // User already has access to the chat - update local user state with room's version
+        setCurrentUser(memberMatch);
+        saveCurrentUser(memberMatch);
         setView(AppState.CHAT);
       } else {
-        // User is logged in globally but not a member of this room yet
+        // Logged in but needs to join the room with code
         setCurrentUser(savedUser);
         setView(AppState.JOIN);
       }
@@ -43,21 +45,21 @@ const App: React.FC = () => {
     const normalizedEmail = email.toLowerCase();
     const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
     
-    // Check existing members list for this email
-    const existingMember = chatRoom.members.find(m => m.email.toLowerCase() === normalizedEmail);
+    // Look for existing player record to preserve stats/role
+    const existingPlayer = chatRoom.members.find(m => m.email.toLowerCase() === normalizedEmail);
 
-    const user: User = existingMember ? { ...existingMember } : {
+    const playerProfile: User = existingPlayer ? { ...existingPlayer } : {
       id: Math.random().toString(36).substr(2, 9),
       email: normalizedEmail,
-      name: existingMember ? existingMember.name : (name || 'Rookie'),
+      name: existingPlayer ? existingPlayer.name : (name || 'Player'),
       role: isAdmin ? 'admin' : 'member',
       joinedAt: Date.now()
     };
 
-    setCurrentUser(user);
-    saveCurrentUser(user);
+    setCurrentUser(playerProfile);
+    saveCurrentUser(playerProfile);
     
-    if (existingMember) {
+    if (existingPlayer) {
       setView(AppState.CHAT);
     } else {
       setView(AppState.JOIN);
@@ -67,21 +69,19 @@ const App: React.FC = () => {
   const handleJoinChat = (code: string) => {
     if (code.toUpperCase() === chatRoom.code.toUpperCase()) {
       if (currentUser) {
-        setChatRoom(prev => {
-          const alreadyMember = prev.members.some(m => m.email.toLowerCase() === currentUser.email.toLowerCase());
-          if (alreadyMember) return prev;
-
-          const updatedMembers = [...prev.members, currentUser];
-          return {
+        const isMember = chatRoom.members.some(m => m.email.toLowerCase() === currentUser.email.toLowerCase());
+        
+        if (!isMember) {
+          setChatRoom(prev => ({
             ...prev,
-            members: updatedMembers,
+            members: [...prev.members, currentUser],
             adminId: currentUser.role === 'admin' ? currentUser.id : prev.adminId
-          };
-        });
+          }));
+        }
         setView(AppState.CHAT);
       }
     } else {
-      alert('Invalid dugout access code. Please check with your Coach.');
+      alert('Invalid Access Code. Please see the Coach for entry.');
     }
   };
 
@@ -91,7 +91,7 @@ const App: React.FC = () => {
     const newMessage: Message = {
       id: Math.random().toString(36).substr(2, 9),
       senderId: isSystem ? 'system' : currentUser!.id,
-      senderName: isSystem ? 'Ballpark Announcer' : currentUser!.name,
+      senderName: isSystem ? 'Ballpark' : currentUser!.name,
       content,
       timestamp: Date.now(),
       readBy: isSystem ? [] : [currentUser!.id]
@@ -117,24 +117,24 @@ const App: React.FC = () => {
     });
     
     const msg = record.type === 'reaction' 
-      ? `⚡️ NEW HEAT RECORD: ${record.userName} clocked a ${record.score}ms reaction!`
-      : `🚨 STATCAST: ${record.userName} just blasted a ${record.score}ft moonshot!`;
+      ? `⚡️ ${record.userName} just clocked a ${record.score}ms reaction!`
+      : `⚾️ ${record.userName} blasted a ${record.score}ft shot!`;
     
     sendMessage(msg, true);
   }, [sendMessage]);
 
   const markMessagesRead = useCallback((userId: string) => {
     setChatRoom(prev => {
-      let hasChanges = false;
+      let changed = false;
       const updatedMessages = prev.messages.map(msg => {
         if (msg.senderId !== userId && (!msg.readBy || !msg.readBy.includes(userId))) {
-          hasChanges = true;
+          changed = true;
           return { ...msg, readBy: [...(msg.readBy || []), userId] };
         }
         return msg;
       });
 
-      if (!hasChanges) return prev;
+      if (!changed) return prev;
       return { ...prev, messages: updatedMessages };
     });
   }, []);
