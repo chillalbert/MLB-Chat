@@ -13,14 +13,6 @@ export interface Message {
   senderName: string;
   content: string;
   timestamp: number;
-  readBy?: string[]; // Array of user IDs who have seen the message
-}
-
-export interface GameRecord {
-  userName: string;
-  score: number;
-  type: 'homerun' | 'reaction';
-  timestamp: number;
 }
 
 export interface ChatRoom {
@@ -30,7 +22,6 @@ export interface ChatRoom {
   adminId: string;
   members: User[];
   messages: Message[];
-  leaderboard: GameRecord[];
 }
 
 export enum AppState {
