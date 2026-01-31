@@ -15,6 +15,13 @@ export interface Message {
   timestamp: number;
 }
 
+export interface LeaderboardEntry {
+  userId: string;
+  userName: string;
+  score: number;
+  timestamp: number;
+}
+
 export interface ChatRoom {
   id: string;
   name: string;
@@ -22,6 +29,11 @@ export interface ChatRoom {
   adminId: string;
   members: User[];
   messages: Message[];
+  leaderboard: {
+    derby: LeaderboardEntry[];
+    heat: LeaderboardEntry[];
+    stealer: LeaderboardEntry[];
+  };
 }
 
 export enum AppState {

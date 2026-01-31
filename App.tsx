@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, ChatRoom, AppState } from './types';
+import { User, ChatRoom, AppState, LeaderboardEntry } from './types';
 import { ADMIN_EMAIL, INITIAL_CHAT_ROOM } from './constants';
 import { getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
 import AuthForm from './components/AuthForm';
@@ -17,7 +17,6 @@ const App: React.FC = () => {
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
-  // Initialize Gun with more reliable global peers
   useEffect(() => {
     gunRef.current = Gun({
       peers: [
@@ -38,7 +37,6 @@ const App: React.FC = () => {
     return () => clearInterval(checkConn);
   }, []);
 
-  // Restore user session - strictly enforce the ADMIN_EMAIL check
   useEffect(() => {
     const savedUser = getCurrentUser();
     if (savedUser) {
@@ -54,25 +52,24 @@ const App: React.FC = () => {
     if (!gunRef.current) return;
     
     const cleanCode = code.toUpperCase().trim();
-    // Use a unique key for the room data
-    const roomKey = `v15_prod_chat_${cleanCode}`;
+    const roomKey = `ss_v30_prod_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Real-time Messages
+    // Messages
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100);
+          .slice(-50);
         return { ...prev, messages: newMessages };
       });
     });
 
-    // Real-time Members
+    // Members
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -81,7 +78,29 @@ const App: React.FC = () => {
       });
     });
 
-    // Room Metadata (Name changes)
+    // Leaderboards
+    ['derby', 'heat', 'stealer'].forEach(game => {
+      roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
+        if (!entry) return;
+        setChatRoom(prev => {
+          const currentList = [...prev.leaderboard[game as keyof typeof prev.leaderboard]];
+          const existingIndex = currentList.findIndex(e => e.userId === entry.userId);
+          
+          if (existingIndex > -1) {
+            // Only update if score is better (High score for derby/stealer, Low for heat)
+            const isBetter = game === 'heat' ? entry.score < currentList[existingIndex].score : entry.score > currentList[existingIndex].score;
+            if (isBetter) currentList[existingIndex] = entry;
+            else return prev;
+          } else {
+            currentList.push(entry);
+          }
+
+          const sorted = currentList.sort((a, b) => game === 'heat' ? a.score - b.score : b.score - a.score).slice(0, 5);
+          return { ...prev, leaderboard: { ...prev.leaderboard, [game]: sorted } };
+        });
+      });
+    });
+
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
@@ -92,14 +111,12 @@ const App: React.FC = () => {
   const handleAuth = (email: string, name: string) => {
     const emailClean = email.toLowerCase().trim();
     const isAdmin = emailClean === ADMIN_EMAIL.toLowerCase().trim();
-    
-    // FIX: Instead of random ID, use email-based ID so users aren't duplicated
-    const userId = `u_${btoa(emailClean).replace(/=/g, '').slice(0, 16)}`;
+    const userId = `u_${btoa(emailClean).replace(/[^a-zA-Z0-9]/g, '').slice(0, 15)}`;
     
     const profile: User = {
       id: userId,
       email: emailClean,
-      name: name || (isAdmin ? 'Admin' : 'User'),
+      name: name || (isAdmin ? 'Admin' : 'Player'),
       role: isAdmin ? 'admin' : 'member',
       joinedAt: Date.now()
     };
@@ -113,21 +130,36 @@ const App: React.FC = () => {
     if (currentUser) {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
-      
-      // Upsert presence in the room
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
-        role: currentUser.role
+        role: currentUser.role,
+        id: currentUser.id
       });
-
       setView(AppState.CHAT);
     }
   };
 
+  const updateUserName = (newName: string) => {
+    if (!currentUser || !roomNodeRef.current) return;
+    const updatedUser = { ...currentUser, name: newName.trim() };
+    setCurrentUser(updatedUser);
+    saveCurrentUser(updatedUser);
+    roomNodeRef.current.get('members').get(currentUser.id).put({ name: newName.trim() });
+  };
+
+  const saveScore = (game: 'derby' | 'heat' | 'stealer', score: number) => {
+    if (!currentUser || !roomNodeRef.current) return;
+    roomNodeRef.current.get('leaderboard').get(game).get(currentUser.id).put({
+      userId: currentUser.id,
+      userName: currentUser.name,
+      score,
+      timestamp: Date.now()
+    });
+  };
+
   const sendMessage = useCallback((content: string) => {
     if (!currentUser || !roomNodeRef.current) return;
-    
     const msgId = `m_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     roomNodeRef.current.get('messages').get(msgId).put({
       senderId: currentUser.id,
@@ -144,7 +176,6 @@ const App: React.FC = () => {
 
   const removeMember = (userId: string) => {
     if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
-    // Removing member from the node
     roomNodeRef.current.get('members').get(userId).put(null);
   };
 
@@ -157,32 +188,26 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-0 md:p-6 overflow-hidden">
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-0 md:p-6 overflow-hidden">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[100] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-sm pointer-events-none">
+        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-sm pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500'}`}></div>
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            {isConnected ? 'Online' : 'Connecting'}
+            {isConnected ? 'Live' : 'Syncing'}
           </span>
         </div>
       )}
 
       {view === AppState.AUTH && <AuthForm onAuth={handleAuth} />}
-      
-      {view === AppState.JOIN && currentUser && (
-        <JoinForm 
-          userName={currentUser.name} 
-          onJoin={handleJoinChat} 
-          onLogout={handleLogout}
-        />
-      )}
-
+      {view === AppState.JOIN && currentUser && <JoinForm userName={currentUser.name} onJoin={handleJoinChat} onLogout={handleLogout} />}
       {view === AppState.CHAT && currentUser && (
         <ChatRoomComponent
           user={currentUser}
           room={chatRoom}
           onSendMessage={sendMessage}
           onUpdateRoomName={updateRoomName}
+          onUpdateUserName={updateUserName}
+          onSaveScore={saveScore}
           onRemoveMember={removeMember}
           onLogout={handleLogout}
         />
