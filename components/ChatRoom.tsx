@@ -31,24 +31,14 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
 }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
-  const [isEditingCode, setIsEditingCode] = useState(false);
   const [newRoomName, setNewRoomName] = useState(room.name);
-  const [newRoomCode, setNewRoomCode] = useState(room.code);
   const [showMembers, setShowMembers] = useState(false);
   const [activeGame, setActiveGame] = useState<'none' | 'homerun' | 'reaction'>('none');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll only when message length changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [room.messages.length]);
-
-  // Handle read receipts only when new messages arrive
-  useEffect(() => {
-    if (room.messages.length > 0) {
-      onMarkRead();
-    }
-  }, [room.messages.length, onMarkRead]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,13 +52,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
     if (newRoomName.trim()) {
       onUpdateRoomName(newRoomName);
       setIsEditingName(false);
-    }
-  };
-
-  const handleUpdateCode = () => {
-    if (newRoomCode.trim()) {
-      onUpdateRoomCode(newRoomCode);
-      setIsEditingCode(false);
     }
   };
 
@@ -110,7 +93,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
               <h3 className="font-black text-gray-900 uppercase tracking-tighter">Lineup</h3>
               <span className="bg-[#BA0C2F] text-white text-[10px] font-black px-2 py-0.5 rounded uppercase">Live</span>
             </div>
-            <p className="text-xs text-gray-400 font-medium">Currently in the dugout</p>
+            <p className="text-xs text-gray-400 font-medium">{room.members.length} player(s) in room</p>
           </div>
           <button onClick={() => setShowMembers(false)} className="md:hidden p-2 text-gray-400">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -121,7 +104,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           <section>
             <div className="flex items-center space-x-2 px-2 mb-3">
               <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Members</h4>
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dugout</h4>
             </div>
             <div className="space-y-2">
               {room.members.map((member) => (
@@ -132,7 +115,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
                     </div>
                     <div className="overflow-hidden">
                       <div className="text-sm font-bold text-gray-900 truncate">{member.name}</div>
-                      {member.role === 'admin' && <div className="text-[8px] text-blue-600 font-black uppercase">Coach</div>}
+                      {member.role === 'admin' && <div className="text-[8px] text-blue-600 font-black uppercase">Manager</div>}
                     </div>
                   </div>
                   {isAdmin && member.id !== user.id && (
@@ -148,17 +131,17 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           <section>
             <div className="flex items-center space-x-2 px-2 mb-3">
               <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-orange-600">League Records</h4>
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-orange-600">Season Stats</h4>
             </div>
             <div className="space-y-2">
               {room.leaderboard.length === 0 ? (
-                <div className="text-[10px] font-bold text-gray-400 italic px-2">No stats recorded yet this season...</div>
+                <div className="text-[10px] font-bold text-gray-400 italic px-2">Waiting for first pitch...</div>
               ) : (
                 room.leaderboard.map((rec, i) => (
                   <div key={i} className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
                     <div>
                       <div className="text-[10px] font-black text-gray-900 uppercase truncate">{rec.userName}</div>
-                      <div className="text-[8px] text-gray-400 font-bold uppercase">{rec.type === 'reaction' ? 'Heat Challenge' : 'Derby Distance'}</div>
+                      <div className="text-[8px] text-gray-400 font-bold uppercase">{rec.type === 'reaction' ? 'Heat' : 'Derby'}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs font-black text-blue-700 italic">{rec.score}{rec.type === 'reaction' ? 'ms' : 'ft'}</div>
@@ -175,23 +158,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
              <button onClick={() => setActiveGame('homerun')} className="bg-orange-50 text-orange-700 font-black py-2.5 px-2 rounded-xl border border-orange-100 text-[10px] uppercase hover:bg-orange-100 transition">⚾️ Derby</button>
              <button onClick={() => setActiveGame('reaction')} className="bg-blue-50 text-blue-700 font-black py-2.5 px-2 rounded-xl border border-blue-100 text-[10px] uppercase hover:bg-blue-100 transition">⚡️ Heat</button>
            </div>
-           {isAdmin && (
-             <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
-               <label className="block text-[8px] font-black text-gray-400 uppercase mb-1">Dugout Entry Code</label>
-               {isEditingCode ? (
-                 <div className="flex items-center space-x-2">
-                   <input className="flex-1 text-xs font-black bg-white border border-gray-300 rounded px-2 py-1 outline-none uppercase" value={newRoomCode} onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())} autoFocus />
-                   <button onClick={handleUpdateCode} className="text-blue-700 font-black text-[10px] uppercase">OK</button>
-                 </div>
-               ) : (
-                 <div className="flex items-center justify-between">
-                   <span className="text-sm font-black text-[#002D72]">{room.code}</span>
-                   <button onClick={() => setIsEditingCode(true)} className="text-[8px] font-black text-blue-600 uppercase">Edit</button>
-                 </div>
-               )}
-             </div>
-           )}
-           <button onClick={onLogout} className="w-full text-gray-400 hover:text-red-600 font-black py-2 text-[10px] uppercase tracking-widest">Sign Out</button>
+           <button onClick={onLogout} className="w-full text-gray-400 hover:text-red-600 font-black py-2 text-[10px] uppercase tracking-widest">Logout</button>
         </div>
       </div>
 
@@ -216,13 +183,13 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
                   </>
                 )}
               </div>
-              <div className="flex items-center space-x-2 mt-0.5"><span className="flex h-1.5 w-1.5"><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span></span><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Stadium Feed Live</span></div>
+              <div className="flex items-center space-x-2 mt-0.5"><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Private Dugout</span></div>
             </div>
           </div>
           <div className="hidden sm:flex items-center space-x-4">
              <div className="text-right">
                <div className="text-xs font-black text-gray-900 uppercase">{user.name}</div>
-               <div className="text-[8px] text-[#BA0C2F] font-black uppercase tracking-widest">{user.role}</div>
+               <div className="text-[8px] text-[#BA0C2F] font-black uppercase tracking-widest">{user.role === 'admin' ? 'Manager' : 'Player'}</div>
              </div>
              <div className="w-10 h-10 rounded-xl mlb-gradient flex items-center justify-center text-white font-black shadow-lg border-2 border-white">{user.name.charAt(0)}</div>
           </div>
@@ -232,8 +199,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           {room.messages.map((msg) => {
             const isMe = msg.senderId === user.id;
             const isSystem = msg.senderId === 'system';
-            const readCount = (msg.readBy?.filter(id => id !== msg.senderId).length || 0);
-            const isRead = readCount > 0;
             
             if (isSystem) {
               return (
@@ -254,12 +219,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
                     <div className={`px-4 py-3 rounded-2xl text-sm font-medium leading-relaxed shadow-sm ${isMe ? 'bg-gray-900 text-white rounded-tr-none' : 'bg-gray-100 text-gray-800 rounded-tl-none border border-gray-100'}`}>{msg.content}</div>
                     <div className={`flex items-center space-x-1.5 mt-1.5 font-bold uppercase tracking-widest ${isMe ? 'mr-1' : 'ml-1'}`}>
                       <span className="text-[8px] text-gray-400">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      {isMe && (
-                        <div className={`flex -space-x-1 ${isRead ? 'text-blue-500' : 'text-gray-200'}`}>
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
