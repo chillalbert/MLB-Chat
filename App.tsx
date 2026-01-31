@@ -17,37 +17,40 @@ const App: React.FC = () => {
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
-  // Initialize Gun with a broad set of public relays for maximum reliability
+  // Initialize Gun with a more resilient set of peers
   useEffect(() => {
+    // These are public community relays. Some might fail, Gun will skip them automatically.
     gunRef.current = Gun({
       peers: [
         'https://gun-manhattan.herokuapp.com/gun',
-        'https://gunjs.herokuapp.com/gun',
         'https://peer.wall.org/gun',
-        'https://www.raygun.live/gun',
-        'https://gun-us.herokuapp.com/gun',
-        'https://gun-eu.herokuapp.com/gun'
+        'https://gunjs.herokuapp.com/gun',
+        'https://dletta.herokuapp.com/gun'
       ],
-      localStorage: true // Local caching for speed
+      localStorage: true
     });
 
-    // Enhanced connection monitoring
+    // Check if we are connected to at least one peer
     const checkConnection = setInterval(() => {
       const peers = (gunRef.current as any)._?.opt?.peers || {};
       const active = Object.values(peers).some((p: any) => p.wire && p.wire.readyState === 1);
       setIsConnected(active);
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(checkConnection);
   }, []);
 
-  // Session Recovery
+  // Session Recovery & Admin Enforcement
   useEffect(() => {
     const savedUser = getCurrentUser();
     if (savedUser) {
-      const isAdmin = savedUser.email.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase().trim();
-      const updatedUser = { ...savedUser, role: isAdmin ? 'admin' : 'member' } as User;
-      setCurrentUser(updatedUser);
+      const isActuallyAdmin = savedUser.email.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase().trim();
+      const userWithProperRole = {
+        ...savedUser,
+        role: isActuallyAdmin ? 'admin' : 'member'
+      } as User;
+      
+      setCurrentUser(userWithProperRole);
       setView(AppState.JOIN);
     }
   }, []);
@@ -55,43 +58,45 @@ const App: React.FC = () => {
   const syncRoom = useCallback((code: string) => {
     if (!gunRef.current) return;
     
-    // Reset local room state for the new code
-    setChatRoom({ ...INITIAL_CHAT_ROOM, code });
-
-    const roomKey = `v4_mlb_square_${code.toUpperCase().trim()}`;
+    const cleanCode = code.toUpperCase().trim();
+    // Unique key for this specific chat room on the global Gun network
+    const roomKey = `mlb_pro_sync_v5_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
-    // Sync Messages
+    setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
+
+    // Listen for Messages
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
+        // Prevent duplicates
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100); 
+          .slice(-100); // Only keep last 100 for performance
         return { ...prev, messages: newMessages };
       });
     });
 
-    // Sync Members
+    // Listen for Members
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
-      if (!member) {
-        setChatRoom(prev => ({ ...prev, members: prev.members.filter(m => m.id !== id) }));
-        return;
-      }
       setChatRoom(prev => {
+        if (!member) {
+          return { ...prev, members: prev.members.filter(m => m.id !== id) };
+        }
         const others = prev.members.filter(m => m.id !== id);
         return { ...prev, members: [...others, { ...member, id }] };
       });
     });
 
-    // Sync Metadata (Room Name)
+    // Listen for Room Metadata (Name changes)
     roomNodeRef.current.get('metadata').on((meta: any) => {
-      if (!meta) return;
-      setChatRoom(prev => ({ ...prev, name: meta.name || prev.name }));
+      if (meta && meta.name) {
+        setChatRoom(prev => ({ ...prev, name: meta.name }));
+      }
     });
 
-    // Sync Leaderboard
+    // Listen for Leaderboard
     roomNodeRef.current.get('leaderboard').map().on((rec: any, id: string) => {
       if (!rec) return;
       setChatRoom(prev => {
@@ -107,13 +112,13 @@ const App: React.FC = () => {
 
   const handleAuth = (email: string, name: string) => {
     const normalizedEmail = email.toLowerCase().trim();
-    const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
+    const isActuallyAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase().trim();
     
     const playerProfile: User = {
-      id: `u_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       email: normalizedEmail,
-      name: name || 'Player',
-      role: isAdmin ? 'admin' : 'member',
+      name: name || 'Rookie',
+      role: isActuallyAdmin ? 'admin' : 'member',
       joinedAt: Date.now()
     };
 
@@ -127,7 +132,7 @@ const App: React.FC = () => {
       const roomCode = code.toUpperCase().trim();
       syncRoom(roomCode);
       
-      // Register self with Gun
+      // Add self to the global member list for this room
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -143,10 +148,10 @@ const App: React.FC = () => {
     if (!currentUser && !isSystem) return;
     if (!roomNodeRef.current) return;
     
-    const msgId = `m_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     roomNodeRef.current.get('messages').get(msgId).put({
       senderId: isSystem ? 'system' : currentUser!.id,
-      senderName: isSystem ? 'Ballpark' : currentUser!.name,
+      senderName: isSystem ? 'Stadium' : currentUser!.name,
       content,
       timestamp: Date.now()
     });
@@ -154,12 +159,12 @@ const App: React.FC = () => {
 
   const submitGameScore = useCallback((record: GameRecord) => {
     if (!roomNodeRef.current) return;
-    const scoreId = `s_${Date.now()}`;
+    const scoreId = `score_${Date.now()}`;
     roomNodeRef.current.get('leaderboard').get(scoreId).put(record);
     
     const msg = record.type === 'reaction' 
-      ? `⚡️ ${record.userName} clocked ${record.score}ms!`
-      : `⚾️ ${record.userName} hit it ${record.score}ft!`;
+      ? `⚡️ ${record.userName} clocked a ${record.score}ms heat!`
+      : `⚾️ ${record.userName} crushed a ${record.score}ft homer!`;
     
     sendMessage(msg, true);
   }, [sendMessage]);
@@ -171,6 +176,7 @@ const App: React.FC = () => {
 
   const adminRemoveMember = (userId: string) => {
     if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
+    // Set to null in Gun to remove from graph
     roomNodeRef.current.get('members').get(userId).put(null);
   };
 
@@ -184,12 +190,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-0 md:p-4">
-      {/* Real-time Connection Status Indicator */}
+      {/* Global Connection Status */}
       {view === AppState.CHAT && (
-        <div className="fixed top-2 right-2 z-[60] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-gray-200 shadow-lg pointer-events-none">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-          <span className="text-[10px] font-black text-gray-600 uppercase tracking-tighter">
-            {isConnected ? 'Syncing Live' : 'Network Error'}
+        <div className="fixed top-3 right-3 z-[60] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-gray-200 shadow-sm pointer-events-none">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
+          <span className="text-[10px] font-black text-gray-500 uppercase tracking-tighter">
+            {isConnected ? 'Online & Synced' : 'Connecting...'}
           </span>
         </div>
       )}
