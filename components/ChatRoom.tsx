@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, ChatRoom, Message, GameRecord } from '../types';
 import HomeRunGame from './HomeRunGame';
 import ReactionGame from './ReactionGame';
@@ -38,14 +38,17 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
   const [activeGame, setActiveGame] = useState<'none' | 'homerun' | 'reaction'>('none');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // Scroll only when message length changes
   useEffect(() => {
-    scrollToBottom();
-    if (room.messages.length > 0) onMarkRead();
-  }, [room.messages, onMarkRead]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [room.messages.length]);
+
+  // Handle read receipts only when new messages arrive
+  useEffect(() => {
+    if (room.messages.length > 0) {
+      onMarkRead();
+    }
+  }, [room.messages.length, onMarkRead]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +58,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
     }
   };
 
-  // Fix: Added handleUpdateName to persist room name changes
   const handleUpdateName = () => {
     if (newRoomName.trim()) {
       onUpdateRoomName(newRoomName);
@@ -63,7 +65,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
     }
   };
 
-  // Fix: Added handleUpdateCode to resolve "Cannot find name 'handleUpdateCode'" error
   const handleUpdateCode = () => {
     if (newRoomCode.trim()) {
       onUpdateRoomCode(newRoomCode);
@@ -98,7 +99,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
       {activeGame === 'homerun' && <HomeRunGame onClose={() => setActiveGame('none')} onGameOver={handleHRGameOver} />}
       {activeGame === 'reaction' && <ReactionGame onClose={() => setActiveGame('none')} onGameOver={handleReactionGameOver} />}
 
-      {/* Sidebar - Members List & Leaderboard */}
+      {/* Sidebar */}
       <div className={`
         ${showMembers ? 'fixed inset-0 flex' : 'hidden md:flex'} 
         w-full md:w-80 flex-col bg-gray-50 border-r border-gray-200 z-50 md:relative md:z-10
@@ -179,7 +180,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
                <label className="block text-[8px] font-black text-gray-400 uppercase mb-1">Dugout Entry Code</label>
                {isEditingCode ? (
                  <div className="flex items-center space-x-2">
-                   <input className="flex-1 text-xs font-black bg-white border border-gray-300 rounded px-2 py-1 outline-none uppercase" value={newRoomCode} onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())} />
+                   <input className="flex-1 text-xs font-black bg-white border border-gray-300 rounded px-2 py-1 outline-none uppercase" value={newRoomCode} onChange={(e) => setNewRoomCode(e.target.value.toUpperCase())} autoFocus />
                    <button onClick={handleUpdateCode} className="text-blue-700 font-black text-[10px] uppercase">OK</button>
                  </div>
                ) : (
@@ -196,7 +197,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col relative bg-white">
-        {/* Header */}
         <header className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center space-x-4">
             <button onClick={() => setShowMembers(true)} className="md:hidden p-2 hover:bg-gray-100 rounded-xl">
@@ -228,7 +228,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           </div>
         </header>
 
-        {/* Messages List */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-white">
           {room.messages.map((msg) => {
             const isMe = msg.senderId === user.id;
@@ -270,7 +269,6 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Message Input */}
         <footer className="p-4 md:p-6 bg-white border-t border-gray-100">
           <form onSubmit={handleSend} className="flex items-center space-x-3 max-w-4xl mx-auto">
             <input type="text" className="flex-1 bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-medium focus:bg-white focus:border-[#002D72] focus:ring-0 outline-none transition" placeholder="Message the dugout..." value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} />

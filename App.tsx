@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, ChatRoom, AppState, Message, GameRecord } from './types';
 import { ADMIN_EMAIL } from './constants';
 import { getChatData, saveChatData, getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
@@ -11,23 +11,28 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [chatRoom, setChatRoom] = useState<ChatRoom>(getChatData());
   const [view, setView] = useState<AppState>(AppState.AUTH);
+  
+  // Persistence listener for chatRoom changes
+  useEffect(() => {
+    saveChatData(chatRoom);
+  }, [chatRoom]);
 
-  // Core Session Recovery
+  // Initial Load & Session Recovery
   useEffect(() => {
     const savedUser = getCurrentUser();
     const room = getChatData();
     setChatRoom(room);
 
     if (savedUser) {
-      // Check if user is a valid member of the dugout
-      const memberInRoom = room.members.find(m => m.email.toLowerCase() === savedUser.email.toLowerCase());
+      const normalizedEmail = savedUser.email.toLowerCase();
+      // Important: Prioritize the data from the room's member list (source of truth)
+      const memberInRoom = room.members.find(m => m.email.toLowerCase() === normalizedEmail);
       
       if (memberInRoom) {
-        // User is a member, skip auth and join screens
         setCurrentUser(memberInRoom);
         setView(AppState.CHAT);
       } else {
-        // User has an account but hasn't joined this room yet
+        // User is logged in globally but not a member of this room yet
         setCurrentUser(savedUser);
         setView(AppState.JOIN);
       }
@@ -35,21 +40,16 @@ const App: React.FC = () => {
   }, []);
 
   const handleAuth = (email: string, name: string) => {
-    const room = getChatData();
     const normalizedEmail = email.toLowerCase();
     const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
     
-    // Check if this person is already in the global members list
-    const existingMember = room.members.find(m => m.email.toLowerCase() === normalizedEmail);
+    // Check existing members list for this email
+    const existingMember = chatRoom.members.find(m => m.email.toLowerCase() === normalizedEmail);
 
-    // If logging in, we take the name from the existing member record
-    // If signing up, we use the provided name
-    const finalName = existingMember ? existingMember.name : name;
-
-    const user: User = existingMember ? { ...existingMember, name: finalName } : {
+    const user: User = existingMember ? { ...existingMember } : {
       id: Math.random().toString(36).substr(2, 9),
       email: normalizedEmail,
-      name: finalName || 'Rookie',
+      name: existingMember ? existingMember.name : (name || 'Rookie'),
       role: isAdmin ? 'admin' : 'member',
       joinedAt: Date.now()
     };
@@ -65,36 +65,29 @@ const App: React.FC = () => {
   };
 
   const handleJoinChat = (code: string) => {
-    const room = getChatData();
-    if (code.toUpperCase() === room.code.toUpperCase()) {
+    if (code.toUpperCase() === chatRoom.code.toUpperCase()) {
       if (currentUser) {
-        const updatedRoom = { ...room };
-        const memberIndex = updatedRoom.members.findIndex(m => m.email.toLowerCase() === currentUser.email.toLowerCase());
-        
-        if (memberIndex === -1) {
-          updatedRoom.members.push(currentUser);
-          if (currentUser.role === 'admin') {
-            updatedRoom.adminId = currentUser.id;
-          }
-        } else {
-          // Refresh member data
-          updatedRoom.members[memberIndex] = currentUser;
-        }
-        
-        setChatRoom(updatedRoom);
-        saveChatData(updatedRoom);
+        setChatRoom(prev => {
+          const alreadyMember = prev.members.some(m => m.email.toLowerCase() === currentUser.email.toLowerCase());
+          if (alreadyMember) return prev;
+
+          const updatedMembers = [...prev.members, currentUser];
+          return {
+            ...prev,
+            members: updatedMembers,
+            adminId: currentUser.role === 'admin' ? currentUser.id : prev.adminId
+          };
+        });
         setView(AppState.CHAT);
       }
     } else {
-      alert('Invalid dugout access code.');
+      alert('Invalid dugout access code. Please check with your Coach.');
     }
   };
 
-  const sendMessage = (content: string, isSystem = false) => {
+  const sendMessage = useCallback((content: string, isSystem = false) => {
     if (!currentUser && !isSystem) return;
     
-    // Always get fresh data from state/storage to prevent overwriting
-    const room = getChatData();
     const newMessage: Message = {
       id: Math.random().toString(36).substr(2, 9),
       senderId: isSystem ? 'system' : currentUser!.id,
@@ -104,78 +97,64 @@ const App: React.FC = () => {
       readBy: isSystem ? [] : [currentUser!.id]
     };
 
-    const updatedRoom = {
-      ...room,
-      messages: [...room.messages, newMessage]
-    };
+    setChatRoom(prev => ({
+      ...prev,
+      messages: [...prev.messages, newMessage]
+    }));
+  }, [currentUser]);
 
-    setChatRoom(updatedRoom);
-    saveChatData(updatedRoom);
-  };
+  const submitGameScore = useCallback((record: GameRecord) => {
+    setChatRoom(prev => {
+      const updatedLeaderboard = [...prev.leaderboard, record].sort((a, b) => {
+        if (record.type === 'reaction') return a.score - b.score;
+        return b.score - a.score;
+      }).slice(0, 10);
 
-  const submitGameScore = (record: GameRecord) => {
-    const room = getChatData();
-    const updatedLeaderboard = [...room.leaderboard, record].sort((a, b) => {
-      if (record.type === 'reaction') return a.score - b.score; // Lower is better for reaction
-      return b.score - a.score; // Higher is better for home runs
-    }).slice(0, 10);
-
-    const updatedRoom = {
-      ...room,
-      leaderboard: updatedLeaderboard
-    };
-
-    setChatRoom(updatedRoom);
-    saveChatData(updatedRoom);
+      return {
+        ...prev,
+        leaderboard: updatedLeaderboard
+      };
+    });
     
     const msg = record.type === 'reaction' 
       ? `⚡️ NEW HEAT RECORD: ${record.userName} clocked a ${record.score}ms reaction!`
       : `🚨 STATCAST: ${record.userName} just blasted a ${record.score}ft moonshot!`;
     
     sendMessage(msg, true);
-  };
+  }, [sendMessage]);
 
   const markMessagesRead = useCallback((userId: string) => {
-    const room = getChatData();
-    let hasChanges = false;
-    const updatedMessages = room.messages.map(msg => {
-      if (msg.senderId !== userId && (!msg.readBy || !msg.readBy.includes(userId))) {
-        hasChanges = true;
-        return { ...msg, readBy: [...(msg.readBy || []), userId] };
-      }
-      return msg;
-    });
+    setChatRoom(prev => {
+      let hasChanges = false;
+      const updatedMessages = prev.messages.map(msg => {
+        if (msg.senderId !== userId && (!msg.readBy || !msg.readBy.includes(userId))) {
+          hasChanges = true;
+          return { ...msg, readBy: [...(msg.readBy || []), userId] };
+        }
+        return msg;
+      });
 
-    if (hasChanges) {
-      const updatedRoom = { ...room, messages: updatedMessages };
-      setChatRoom(updatedRoom);
-      saveChatData(updatedRoom);
-    }
+      if (!hasChanges) return prev;
+      return { ...prev, messages: updatedMessages };
+    });
   }, []);
 
   const adminUpdateRoomName = (newName: string) => {
     if (currentUser?.role !== 'admin') return;
-    const room = getChatData();
-    const updatedRoom = { ...room, name: newName };
-    setChatRoom(updatedRoom);
-    saveChatData(updatedRoom);
+    setChatRoom(prev => ({ ...prev, name: newName }));
   };
 
   const adminUpdateRoomCode = (newCode: string) => {
     if (currentUser?.role !== 'admin') return;
-    const room = getChatData();
-    const updatedRoom = { ...room, code: newCode.toUpperCase() };
-    setChatRoom(updatedRoom);
-    saveChatData(updatedRoom);
+    setChatRoom(prev => ({ ...prev, code: newCode.toUpperCase() }));
   };
 
   const adminRemoveMember = (userId: string) => {
     if (currentUser?.role !== 'admin') return;
-    const room = getChatData();
-    const updatedMembers = room.members.filter(m => m.id !== userId);
-    const updatedRoom = { ...room, members: updatedMembers };
-    setChatRoom(updatedRoom);
-    saveChatData(updatedRoom);
+    setChatRoom(prev => ({
+      ...prev,
+      members: prev.members.filter(m => m.id !== userId)
+    }));
   };
 
   const handleLogout = () => {
