@@ -14,8 +14,9 @@ export const INITIAL_CHAT_ROOM = {
       id: 'msg-1',
       senderId: 'system',
       senderName: 'System',
-      content: 'Welcome to MLB Chat! The secret entrance code is SQUARE1.',
+      content: 'Welcome to the MLB Chat Dugout! Please maintain professional sportsmanship.',
       timestamp: Date.now()
     }
-  ]
+  ],
+  leaderboard: []
 };

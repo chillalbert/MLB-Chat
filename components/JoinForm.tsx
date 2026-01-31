@@ -24,7 +24,7 @@ const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
       <div className="flex justify-between items-start mb-8">
         <div>
           <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase italic">Welcome, {userName.split(' ')[0]}!</h2>
-          <p className="text-gray-500 text-sm mt-1 font-medium">Authentication successful. Now enter the access code.</p>
+          <p className="text-gray-500 text-sm mt-1 font-medium">Player verified. Enter the dugout access code to proceed.</p>
         </div>
         <button onClick={onLogout} className="p-2 text-gray-400 hover:text-red-600 transition hover:bg-red-50 rounded-xl">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,16 +50,16 @@ const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
           type="submit"
           className="w-full mlb-gradient text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-900/20 transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] uppercase tracking-widest"
         >
-          Enter the Stadium
+          Verify & Enter
         </button>
       </form>
 
-      <div className="mt-8 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-        <p className="text-xs text-blue-800 font-bold flex items-center leading-relaxed">
-          <svg className="w-5 h-5 mr-3 flex-shrink-0 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="mt-8 p-4 bg-gray-50 rounded-2xl border border-gray-200">
+        <p className="text-xs text-gray-500 font-bold flex items-center leading-relaxed">
+          <svg className="w-5 h-5 mr-3 flex-shrink-0 text-[#BA0C2F]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
-          This is a restricted area. Only members with the valid SQUARE1 passcode are permitted inside MLB Chat.
+          Restricted Area: Unauthorized access is strictly prohibited. Access codes are managed by the Room Admin.
         </p>
       </div>
     </div>

@@ -12,8 +12,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (email && (isLoginMode || name)) {
-      onAuth(email, name || 'Returning User');
+    if (email) {
+      // If logging in, name will be fetched from existing records in App.tsx
+      onAuth(email, name);
     }
   };
 
@@ -70,7 +71,10 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
       
       <div className="mt-8 pt-6 border-t border-gray-50 text-center">
         <button 
-          onClick={() => setIsLoginMode(!isLoginMode)}
+          onClick={() => {
+            setIsLoginMode(!isLoginMode);
+            setName('');
+          }}
           className="text-sm font-bold text-[#002D72] hover:text-[#BA0C2F] transition"
         >
           {isLoginMode ? "Don't have an account? Sign up" : "Already a member? Sign in"}
