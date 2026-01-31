@@ -1,120 +1,146 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, ChatRoom, AppState, Message, GameRecord } from './types';
-import { ADMIN_EMAIL } from './constants';
-import { getChatData, saveChatData, getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
+import { ADMIN_EMAIL, INITIAL_CHAT_ROOM } from './constants';
+import { getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
 import AuthForm from './components/AuthForm';
 import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
+import Gun from 'gun';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [chatRoom, setChatRoom] = useState<ChatRoom>(getChatData());
+  const [chatRoom, setChatRoom] = useState<ChatRoom>(INITIAL_CHAT_ROOM);
   const [view, setView] = useState<AppState>(AppState.AUTH);
   
-  // Sync state to localStorage whenever chatRoom changes
+  // Gun instance
+  const gunRef = useRef<any>(null);
+  const roomNodeRef = useRef<any>(null);
+
+  // Initialize Gun on mount
   useEffect(() => {
-    saveChatData(chatRoom);
-  }, [chatRoom]);
+    // Public Gun relays for peer-to-peer sync
+    gunRef.current = Gun([
+      'https://gun-manhattan.herokuapp.com/gun',
+      'https://peer.wall.org/gun'
+    ]);
+  }, []);
 
   // Handle Session Recovery on Mount
   useEffect(() => {
     const savedUser = getCurrentUser();
-    const currentRoom = getChatData();
-    setChatRoom(currentRoom);
-
     if (savedUser) {
-      const email = savedUser.email.toLowerCase();
-      // Check if this user is a registered member of the dugout
-      const memberMatch = currentRoom.members.find(m => m.email.toLowerCase() === email);
-      
-      if (memberMatch) {
-        // User already has access to the chat - update local user state with room's version
-        setCurrentUser(memberMatch);
-        saveCurrentUser(memberMatch);
-        setView(AppState.CHAT);
-      } else {
-        // Logged in but needs to join the room with code
-        setCurrentUser(savedUser);
-        setView(AppState.JOIN);
-      }
+      setCurrentUser(savedUser);
+      setView(AppState.JOIN); // Force them to enter code again for security or we could auto-join
     }
+  }, []);
+
+  // Sync with Gun when a room is joined
+  const syncRoom = useCallback((code: string) => {
+    if (!gunRef.current) return;
+    
+    const roomKey = `sports_square_room_${code.toUpperCase()}`;
+    roomNodeRef.current = gunRef.current.get(roomKey);
+
+    // Sync Messages
+    roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
+      if (!msg) return;
+      setChatRoom(prev => {
+        if (prev.messages.some(m => m.id === id)) return prev;
+        const newMsg = { ...msg, id };
+        return {
+          ...prev,
+          messages: [...prev.messages, newMsg].sort((a, b) => a.timestamp - b.timestamp)
+        };
+      });
+    });
+
+    // Sync Members
+    roomNodeRef.current.get('members').map().on((member: any, id: string) => {
+      if (!member) return;
+      setChatRoom(prev => {
+        const others = prev.members.filter(m => m.id !== id);
+        return { ...prev, members: [...others, { ...member, id }] };
+      });
+    });
+
+    // Sync Room Metadata
+    roomNodeRef.current.get('metadata').on((meta: any) => {
+      if (!meta) return;
+      setChatRoom(prev => ({
+        ...prev,
+        name: meta.name || prev.name,
+        code: meta.code || prev.code
+      }));
+    });
+
+    // Sync Leaderboard
+    roomNodeRef.current.get('leaderboard').map().on((rec: any, id: string) => {
+      if (!rec) return;
+      setChatRoom(prev => {
+        if (prev.leaderboard.some(r => r.timestamp === rec.timestamp)) return prev;
+        const updated = [...prev.leaderboard, rec].sort((a, b) => {
+          if (rec.type === 'reaction') return a.score - b.score;
+          return b.score - a.score;
+        }).slice(0, 10);
+        return { ...prev, leaderboard: updated };
+      });
+    });
   }, []);
 
   const handleAuth = (email: string, name: string) => {
     const normalizedEmail = email.toLowerCase();
     const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
     
-    // Look for existing player record to preserve stats/role
-    const existingPlayer = chatRoom.members.find(m => m.email.toLowerCase() === normalizedEmail);
-
-    const playerProfile: User = existingPlayer ? { ...existingPlayer } : {
+    const playerProfile: User = {
       id: Math.random().toString(36).substr(2, 9),
       email: normalizedEmail,
-      name: existingPlayer ? existingPlayer.name : (name || 'Player'),
+      name: name || 'Player',
       role: isAdmin ? 'admin' : 'member',
       joinedAt: Date.now()
     };
 
     setCurrentUser(playerProfile);
     saveCurrentUser(playerProfile);
-    
-    if (existingPlayer) {
-      setView(AppState.CHAT);
-    } else {
-      setView(AppState.JOIN);
-    }
+    setView(AppState.JOIN);
   };
 
   const handleJoinChat = (code: string) => {
-    if (code.toUpperCase() === chatRoom.code.toUpperCase()) {
-      if (currentUser) {
-        const isMember = chatRoom.members.some(m => m.email.toLowerCase() === currentUser.email.toLowerCase());
-        
-        if (!isMember) {
-          setChatRoom(prev => ({
-            ...prev,
-            members: [...prev.members, currentUser],
-            adminId: currentUser.role === 'admin' ? currentUser.id : prev.adminId
-          }));
-        }
-        setView(AppState.CHAT);
-      }
-    } else {
-      alert('Invalid Access Code. Please see the Coach for entry.');
+    // In this multi-user version, we check the code against the global Gun state
+    // But for the initial "creation", we allow any code that matches DEFAULT or user entered
+    // For simplicity, we just sync to whatever code they enter.
+    if (currentUser) {
+      syncRoom(code);
+      
+      // Register self as member in Gun
+      roomNodeRef.current.get('members').get(currentUser.id).put({
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+        joinedAt: currentUser.joinedAt
+      });
+
+      setView(AppState.CHAT);
     }
   };
 
   const sendMessage = useCallback((content: string, isSystem = false) => {
     if (!currentUser && !isSystem) return;
+    if (!roomNodeRef.current) return;
     
-    const newMessage: Message = {
-      id: Math.random().toString(36).substr(2, 9),
+    const msgId = Math.random().toString(36).substr(2, 9);
+    roomNodeRef.current.get('messages').get(msgId).put({
       senderId: isSystem ? 'system' : currentUser!.id,
       senderName: isSystem ? 'Ballpark' : currentUser!.name,
       content,
-      timestamp: Date.now(),
-      readBy: isSystem ? [] : [currentUser!.id]
-    };
-
-    setChatRoom(prev => ({
-      ...prev,
-      messages: [...prev.messages, newMessage]
-    }));
+      timestamp: Date.now()
+    });
   }, [currentUser]);
 
   const submitGameScore = useCallback((record: GameRecord) => {
-    setChatRoom(prev => {
-      const updatedLeaderboard = [...prev.leaderboard, record].sort((a, b) => {
-        if (record.type === 'reaction') return a.score - b.score;
-        return b.score - a.score;
-      }).slice(0, 10);
-
-      return {
-        ...prev,
-        leaderboard: updatedLeaderboard
-      };
-    });
+    if (!roomNodeRef.current) return;
+    const scoreId = `score_${Date.now()}`;
+    roomNodeRef.current.get('leaderboard').get(scoreId).put(record);
     
     const msg = record.type === 'reaction' 
       ? `⚡️ ${record.userName} just clocked a ${record.score}ms reaction!`
@@ -123,45 +149,27 @@ const App: React.FC = () => {
     sendMessage(msg, true);
   }, [sendMessage]);
 
-  const markMessagesRead = useCallback((userId: string) => {
-    setChatRoom(prev => {
-      let changed = false;
-      const updatedMessages = prev.messages.map(msg => {
-        if (msg.senderId !== userId && (!msg.readBy || !msg.readBy.includes(userId))) {
-          changed = true;
-          return { ...msg, readBy: [...(msg.readBy || []), userId] };
-        }
-        return msg;
-      });
-
-      if (!changed) return prev;
-      return { ...prev, messages: updatedMessages };
-    });
-  }, []);
-
   const adminUpdateRoomName = (newName: string) => {
-    if (currentUser?.role !== 'admin') return;
-    setChatRoom(prev => ({ ...prev, name: newName }));
+    if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
+    roomNodeRef.current.get('metadata').get('name').put(newName);
   };
 
   const adminUpdateRoomCode = (newCode: string) => {
-    if (currentUser?.role !== 'admin') return;
-    setChatRoom(prev => ({ ...prev, code: newCode.toUpperCase() }));
+    if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
+    roomNodeRef.current.get('metadata').get('code').put(newCode.toUpperCase());
   };
 
   const adminRemoveMember = (userId: string) => {
-    if (currentUser?.role !== 'admin') return;
-    setChatRoom(prev => ({
-      ...prev,
-      members: prev.members.filter(m => m.id !== userId)
-    }));
+    if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
+    roomNodeRef.current.get('members').get(userId).put(null);
   };
 
   const handleLogout = () => {
     clearAppData();
     setCurrentUser(null);
-    setChatRoom(getChatData());
+    setChatRoom(INITIAL_CHAT_ROOM);
     setView(AppState.AUTH);
+    if (roomNodeRef.current) roomNodeRef.current.off();
   };
 
   return (
@@ -183,7 +191,7 @@ const App: React.FC = () => {
           onSendMessage={(content) => sendMessage(content)}
           onSystemMessage={(content) => sendMessage(content, true)}
           onGameScore={submitGameScore}
-          onMarkRead={() => markMessagesRead(currentUser.id)}
+          onMarkRead={() => {}} // Mark read is local only in this simple sync version
           onUpdateRoomName={adminUpdateRoomName}
           onUpdateRoomCode={adminUpdateRoomCode}
           onRemoveMember={adminRemoveMember}
