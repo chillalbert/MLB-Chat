@@ -17,36 +17,36 @@ const App: React.FC = () => {
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
-  // Initialize Gun with more robust public relays
+  // Initialize Gun with a broad set of public relays for maximum reliability
   useEffect(() => {
-    gunRef.current = Gun([
-      'https://gun-manhattan.herokuapp.com/gun',
-      'https://gunjs.herokuapp.com/gun',
-      'https://peer.wall.org/gun',
-      'https://www.raygun.live/gun'
-    ]);
+    gunRef.current = Gun({
+      peers: [
+        'https://gun-manhattan.herokuapp.com/gun',
+        'https://gunjs.herokuapp.com/gun',
+        'https://peer.wall.org/gun',
+        'https://www.raygun.live/gun',
+        'https://gun-us.herokuapp.com/gun',
+        'https://gun-eu.herokuapp.com/gun'
+      ],
+      localStorage: true // Local caching for speed
+    });
 
-    // Check connection status
-    const mesh = (gunRef.current as any)._?.opt?.mesh;
-    if (mesh) {
-      const checkConn = setInterval(() => {
-        // Basic check if we have active peers
-        const peers = Object.values((gunRef.current as any)._?.opt?.peers || {});
-        const active = peers.some((p: any) => p.wire && p.wire.readyState === 1);
-        setIsConnected(active);
-      }, 3000);
-      return () => clearInterval(checkConn);
-    }
+    // Enhanced connection monitoring
+    const checkConnection = setInterval(() => {
+      const peers = (gunRef.current as any)._?.opt?.peers || {};
+      const active = Object.values(peers).some((p: any) => p.wire && p.wire.readyState === 1);
+      setIsConnected(active);
+    }, 2000);
+
+    return () => clearInterval(checkConnection);
   }, []);
 
   // Session Recovery
   useEffect(() => {
     const savedUser = getCurrentUser();
     if (savedUser) {
-      // Force admin status if email matches yours
-      const isAdmin = savedUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      const isAdmin = savedUser.email.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase().trim();
       const updatedUser = { ...savedUser, role: isAdmin ? 'admin' : 'member' } as User;
-      
       setCurrentUser(updatedUser);
       setView(AppState.JOIN);
     }
@@ -55,20 +55,20 @@ const App: React.FC = () => {
   const syncRoom = useCallback((code: string) => {
     if (!gunRef.current) return;
     
-    // Clear current messages before syncing new room
-    setChatRoom(prev => ({ ...prev, messages: [], members: [] }));
+    // Reset local room state for the new code
+    setChatRoom({ ...INITIAL_CHAT_ROOM, code });
 
-    const roomKey = `sports_square_v3_${code.toUpperCase().trim()}`;
+    const roomKey = `v4_mlb_square_${code.toUpperCase().trim()}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
-    // Sync Messages - limit to last 50 for performance
+    // Sync Messages
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100); // Keep last 100
+          .slice(-100); 
         return { ...prev, messages: newMessages };
       });
     });
@@ -85,13 +85,10 @@ const App: React.FC = () => {
       });
     });
 
-    // Sync Room Metadata (Name)
+    // Sync Metadata (Room Name)
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (!meta) return;
-      setChatRoom(prev => ({
-        ...prev,
-        name: meta.name || prev.name
-      }));
+      setChatRoom(prev => ({ ...prev, name: meta.name || prev.name }));
     });
 
     // Sync Leaderboard
@@ -113,7 +110,7 @@ const App: React.FC = () => {
     const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
     
     const playerProfile: User = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: `u_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       email: normalizedEmail,
       name: name || 'Player',
       role: isAdmin ? 'admin' : 'member',
@@ -130,7 +127,7 @@ const App: React.FC = () => {
       const roomCode = code.toUpperCase().trim();
       syncRoom(roomCode);
       
-      // Register self
+      // Register self with Gun
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -146,7 +143,7 @@ const App: React.FC = () => {
     if (!currentUser && !isSystem) return;
     if (!roomNodeRef.current) return;
     
-    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const msgId = `m_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     roomNodeRef.current.get('messages').get(msgId).put({
       senderId: isSystem ? 'system' : currentUser!.id,
       senderName: isSystem ? 'Ballpark' : currentUser!.name,
@@ -157,7 +154,7 @@ const App: React.FC = () => {
 
   const submitGameScore = useCallback((record: GameRecord) => {
     if (!roomNodeRef.current) return;
-    const scoreId = `score_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const scoreId = `s_${Date.now()}`;
     roomNodeRef.current.get('leaderboard').get(scoreId).put(record);
     
     const msg = record.type === 'reaction' 
@@ -189,10 +186,10 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-0 md:p-4">
       {/* Real-time Connection Status Indicator */}
       {view === AppState.CHAT && (
-        <div className="fixed top-2 right-2 z-[60] flex items-center space-x-2 bg-white/80 backdrop-blur px-2 py-1 rounded-full border border-gray-200 shadow-sm pointer-events-none">
+        <div className="fixed top-2 right-2 z-[60] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-gray-200 shadow-lg pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-            {isConnected ? 'Sync Active' : 'Connecting...'}
+          <span className="text-[10px] font-black text-gray-600 uppercase tracking-tighter">
+            {isConnected ? 'Syncing Live' : 'Network Error'}
           </span>
         </div>
       )}
@@ -216,7 +213,7 @@ const App: React.FC = () => {
           onGameScore={submitGameScore}
           onMarkRead={() => {}} 
           onUpdateRoomName={adminUpdateRoomName}
-          onUpdateRoomCode={() => {}} // Code is derived from join
+          onUpdateRoomCode={() => {}} 
           onRemoveMember={adminRemoveMember}
           onLogout={handleLogout}
         />
