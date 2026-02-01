@@ -1,10 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#002D72">
+    <meta name="theme-color" content="#020617">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MLB Chat">
@@ -17,11 +17,12 @@
     <style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: #f8fafc;
+            background-color: #020617;
             margin: 0;
             padding: 0;
             overflow: hidden;
             -webkit-tap-highlight-color: transparent;
+            color: #f8fafc;
         }
         .custom-scrollbar::-webkit-scrollbar {
             width: 4px;
@@ -30,18 +31,21 @@
             background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
+            background: #1e293b;
             border-radius: 10px;
         }
         .mlb-gradient {
             background: linear-gradient(90deg, #002D72 0%, #BA0C2F 100%);
         }
-        /* Mobile safe area padding for notches */
         .safe-pb {
             padding-bottom: env(safe-area-inset-bottom);
         }
         .safe-pt {
             padding-top: env(safe-area-inset-top);
+        }
+        /* Fix for iOS momentum scrolling */
+        .overflow-y-auto {
+            -webkit-overflow-scrolling: touch;
         }
     </style>
     <script type="importmap">
@@ -64,9 +68,9 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('./sw.js').then(reg => {
-            console.log('SW registered:', reg);
+            console.log('SW registered');
           }).catch(err => {
-            console.log('SW reg failed:', err);
+            console.error('SW reg failed', err);
           });
         });
       }

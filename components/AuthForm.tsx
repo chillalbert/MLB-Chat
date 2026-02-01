@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 
 interface AuthFormProps {
@@ -16,22 +15,22 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-10 border border-slate-100">
+    <div className="w-full max-w-md bg-slate-900 rounded-[2.5rem] shadow-2xl p-10 border border-slate-800">
       <div className="text-center mb-10">
-        <h2 className="text-4xl font-black text-[#002D72] tracking-tight uppercase italic">MLB Chat</h2>
-        <p className="text-slate-400 font-medium mt-3">
-          {isLogin ? 'Sign in with your email' : 'Register your player name'}
+        <h2 className="text-4xl font-black text-white tracking-tight uppercase italic leading-none">MLB Chat</h2>
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mt-4">
+          {isLogin ? 'Sign in to dugout' : 'Register for roster'}
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {!isLogin && (
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2 ml-1">Screen Name</label>
+            <label className="block text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-2 ml-1">Player Name</label>
             <input
               type="text"
               required
-              className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-indigo-500 focus:bg-white outline-none transition bg-slate-50 font-medium text-slate-700"
+              className="w-full px-5 py-4 rounded-2xl border-2 border-slate-800 focus:border-indigo-500 focus:bg-slate-950 outline-none transition bg-slate-950 font-bold text-slate-100"
               placeholder="e.g. Ace"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -39,30 +38,30 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
           </div>
         )}
         <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2 ml-1">Email Address</label>
+          <label className="block text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-2 ml-1">Email ID</label>
           <input
             type="email"
             required
-            className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-indigo-500 focus:bg-white outline-none transition bg-slate-50 font-medium text-slate-700"
-            placeholder="player@example.com"
+            className="w-full px-5 py-4 rounded-2xl border-2 border-slate-800 focus:border-indigo-500 focus:bg-slate-950 outline-none transition bg-slate-950 font-bold text-slate-100"
+            placeholder="player@pro.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
         <button
           type="submit"
-          className="w-full mlb-gradient text-white font-bold py-5 rounded-2xl shadow-xl shadow-blue-900/20 transition duration-200 transform active:scale-[0.98] uppercase tracking-widest text-xs"
+          className="w-full mlb-gradient text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-950/40 transition transform active:scale-[0.98] uppercase tracking-widest text-xs"
         >
-          {isLogin ? 'Enter Dugout' : 'Join the Roster'}
+          {isLogin ? 'Enter Field' : 'Join Team'}
         </button>
       </form>
       
       <div className="mt-10 text-center">
         <button 
           onClick={() => setIsLogin(!isLogin)}
-          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition uppercase tracking-widest"
+          className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 transition uppercase tracking-widest"
         >
-          {isLogin ? "New here? Sign up instead" : "Existing user? Sign in"}
+          {isLogin ? "New Player? Sign Up" : "Returning Player? Sign In"}
         </button>
       </div>
     </div>
