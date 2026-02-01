@@ -43,6 +43,10 @@
         .safe-pt {
             padding-top: env(safe-area-inset-top);
         }
+        /* Fix for iOS momentum scrolling */
+        .overflow-y-auto {
+            -webkit-overflow-scrolling: touch;
+        }
     </style>
     <script type="importmap">
 {
@@ -63,10 +67,10 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js', { scope: './' }).then(reg => {
-            console.log('SW registered:', reg);
+          navigator.serviceWorker.register('./sw.js').then(reg => {
+            console.log('SW registered');
           }).catch(err => {
-            console.log('SW reg failed:', err);
+            console.error('SW failed', err);
           });
         });
       }
