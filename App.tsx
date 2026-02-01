@@ -19,29 +19,27 @@ const App: React.FC = () => {
   const roomNodeRef = useRef<any>(null);
 
   useEffect(() => {
+    // PWA Install Prompt Listener
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
     });
 
-    // Using more varied and reliable peers
     gunRef.current = Gun({
       peers: [
         'https://gun-manhattan.herokuapp.com/gun',
         'https://peer.wall.org/gun',
         'https://relay.peer.ooo/gun',
-        'https://dletta.herokuapp.com/gun',
         'https://gunjs.herokuapp.com/gun'
       ],
-      localStorage: true,
-      radisk: true
+      localStorage: true
     });
 
     const checkConn = setInterval(() => {
       const peers = (gunRef.current as any)._?.opt?.peers || {};
       const active = Object.values(peers).some((p: any) => p.wire && p.wire.readyState === 1);
       setIsConnected(active);
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(checkConn);
   }, []);
@@ -68,8 +66,8 @@ const App: React.FC = () => {
     if (!gunRef.current) return;
     
     const cleanCode = code.toUpperCase().trim();
-    // Unique versioned key to ensure fresh start if needed
-    const roomKey = `mlb_chat_v4_stable_${cleanCode}`;
+    // Unique key with code for persistence
+    const roomKey = `mlb_chat_v1_final_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
@@ -80,7 +78,7 @@ const App: React.FC = () => {
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-60);
+          .slice(-50);
         return { ...prev, messages: newMessages };
       });
     });
@@ -201,12 +199,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none">
+        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-sm pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500'}`}></div>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isConnected ? 'LIVE' : 'SYNCING...'}
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+            {isConnected ? 'Syncing' : 'Offline'}
           </span>
         </div>
       )}
