@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mlb-chat-v7';
+const CACHE_NAME = 'mlb-chat-v13-mesh-fix';
 const ASSETS = [
   './',
   'index.html',
@@ -28,8 +28,11 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
   const url = new URL(event.request.url);
-  // Do NOT intercept GunJS or relay traffic
-  if (url.pathname.includes('/gun') || url.hostname.includes('herokuapp') || url.hostname.includes('peer')) return;
+  // Bypass cache for GunDB traffic
+  if (url.pathname.includes('/gun') || 
+      url.hostname.includes('herokuapp') || 
+      url.hostname.includes('peer') || 
+      url.hostname.includes('gunjs')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

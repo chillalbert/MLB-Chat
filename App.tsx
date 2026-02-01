@@ -7,24 +7,20 @@ import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
 import Gun from 'gun';
 
-// Diversified peer network to ensure connection regardless of individual relay downtime
+// Simplified stable peer list - removed failing heroku nodes
 const peers = [
-  'https://gun-manhattan.herokuapp.com/gun',
-  'https://peer.wall.org/gun',
   'https://relay.peer.ooo/gun',
-  'https://gun-us.herokuapp.com/gun',
-  'https://gun-eu.herokuapp.com/gun',
-  'https://dletta.herokuapp.com/gun',
-  'https://gunjs.herokuapp.com/gun',
-  'https://mg-gun-manhattan.herokuapp.com/gun'
+  'https://peer.wall.org/gun',
+  'https://gun-us.herokuapp.com/gun'
 ];
 
-// Initialize Gun as a singleton with optimized browser settings
+// Initialize Gun once at the top level
 const gun = Gun({
   peers: peers,
   localStorage: true,
-  radisk: false, // Prevents certain locking issues in mobile Safari/Chrome
-  retry: 500 // Faster reconnection attempts
+  radisk: false,
+  axe: false,
+  retry: 3000
 });
 
 const App: React.FC = () => {
@@ -43,13 +39,12 @@ const App: React.FC = () => {
       setDeferredPrompt(e);
     });
 
-    // Monitor peer health and count
     const interval = setInterval(() => {
       const peerList = (gun as any)._?.opt?.peers || {};
       const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
       setPeerCount(activePeers.length);
       setIsConnected(activePeers.length > 0);
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, []);
@@ -68,36 +63,41 @@ const App: React.FC = () => {
   const syncRoom = useCallback((code: string) => {
     if (!gun) return;
     
-    // Clear previous room node listeners
     if (roomNodeRef.current) {
       roomNodeRef.current.off();
     }
 
     const cleanCode = code.toUpperCase().trim();
-    // Unique key for the latest stable sync version
-    const roomKey = `mlb_dugout_v10_final_${cleanCode}`;
+    
+    /**
+     * CRITICAL: Using a fixed production-ready key to avoid room fragmentation.
+     * If two users have different versions of this string, they will NEVER see each other.
+     */
+    const roomKey = `mlb_chat_prod_v50_${cleanCode}`;
     roomNodeRef.current = gun.get(roomKey);
 
-    // Initial state cleanup
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Force-sync (Poke) nodes across the mesh network
-    ['messages', 'members', 'leaderboard', 'metadata'].forEach(node => {
-        roomNodeRef.current.get(node).once(() => {});
+    // Force network fetch for each sub-node
+    ['messages', 'members', 'metadata', 'leaderboard'].forEach(node => {
+      roomNodeRef.current.get(node).once(() => {
+        console.debug(`Synced node: ${node}`);
+      });
     });
 
-    // Sub-listeners for real-time updates
+    // Real-time Message Sync
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-150); // Increased buffer for better chat history
+          .slice(-100);
         return { ...prev, messages: newMessages };
       });
     });
 
+    // Real-time Member Roster Sync
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -106,6 +106,14 @@ const App: React.FC = () => {
       });
     });
 
+    // Real-time Metadata Sync
+    roomNodeRef.current.get('metadata').on((meta: any) => {
+      if (meta && meta.name) {
+        setChatRoom(prev => ({ ...prev, name: meta.name }));
+      }
+    });
+
+    // Leaderboard Sync logic
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -125,12 +133,6 @@ const App: React.FC = () => {
           return { ...prev, leaderboard: { ...prev.leaderboard, [game]: sorted } };
         });
       });
-    });
-
-    roomNodeRef.current.get('metadata').on((meta: any) => {
-      if (meta && meta.name) {
-        setChatRoom(prev => ({ ...prev, name: meta.name }));
-      }
     });
   }, []);
 
@@ -156,14 +158,17 @@ const App: React.FC = () => {
     if (currentUser) {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
-      // Announce presence in the room roster
+      
+      // Upsert presence in the mesh
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
         role: currentUser.role,
         id: currentUser.id,
+        online: true,
         lastSeen: Date.now()
       });
+      
       setView(AppState.CHAT);
     }
   };
@@ -218,11 +223,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none transition-all duration-300">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
-          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-            {isConnected ? `Live (${peerCount})` : 'Mesh Syncing...'}
-          </span>
+        <div className="fixed top-4 right-4 z-[150] flex flex-col items-end space-y-2 pointer-events-none">
+          <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
+            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+              {isConnected ? `MESH LIVE (${peerCount})` : 'MESH SEARCHING...'}
+            </span>
+          </div>
+          <div className="bg-slate-900/80 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
+             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">NODE: 5.0-{chatRoom.code}</span>
+          </div>
         </div>
       )}
 
