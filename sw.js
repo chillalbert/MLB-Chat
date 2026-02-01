@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mlb-chat-v25-sync-lock';
+const CACHE_NAME = 'mlb-chat-v30-firebase-core';
 const ASSETS = [
   './',
   'index.html',
@@ -28,10 +28,10 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
   const url = new URL(event.request.url);
-  if (url.pathname.includes('/gun') || 
-      url.hostname.includes('herokuapp') || 
-      url.hostname.includes('peer') || 
-      url.hostname.includes('gunjs')) return;
+  // Bypass cache for Firebase traffic
+  if (url.hostname.includes('firebaseio.com') || 
+      url.hostname.includes('googleapis.com') || 
+      url.hostname.includes('gstatic.com')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

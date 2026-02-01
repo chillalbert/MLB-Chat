@@ -1,61 +1,53 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, ChatRoom, AppState, Message } from './types';
+import { User, ChatRoom, AppState, Message, LeaderboardEntry } from './types';
 import { ADMIN_EMAIL, INITIAL_CHAT_ROOM } from './constants';
 import { getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
 import AuthForm from './components/AuthForm';
 import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
-import Gun from 'gun';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, push, set, onChildAdded, off, remove, query, limitToLast, orderByChild } from 'firebase/database';
 
-// HIGH-RELIABILITY STABLE PEERS (Non-Heroku primary)
-const peers = [
-  'https://relay.peer.ooo/gun',
-  'https://peer.wall.org/gun',
-  'https://gun-manhattan.herokuapp.com/gun' // Manhattan is the most stable legacy node
-];
+const firebaseConfig = {
+  apiKey: "AIzaSyAxFzCWywLPK0BWuUk8yhmONhfoo_FYuGk",
+  authDomain: "mailbagchatsportssquare.firebaseapp.com",
+  projectId: "mailbagchatsportssquare",
+  storageBucket: "mailbagchatsportssquare.firebasestorage.app",
+  messagingSenderId: "621911267037",
+  appId: "1:621911267037:web:3c66a200cbcd9765542d34",
+  measurementId: "G-868BEL032N"
+};
 
-// Singleton Gun instance
-const gun = Gun({
-  peers: peers,
-  localStorage: false, // Prevent stale browser data from hijacking the room
-  radisk: false,
-  axe: false,
-  retry: 1500
-});
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [chatRoom, setChatRoom] = useState<ChatRoom>(INITIAL_CHAT_ROOM);
   const [view, setView] = useState<AppState>(AppState.AUTH);
   const [isConnected, setIsConnected] = useState(false);
-  const [peerCount, setPeerCount] = useState(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
-  const roomNodeRef = useRef<any>(null);
-  const seenMessages = useRef<Set<string>>(new Set());
   const lastSentTime = useRef<number>(0);
+  const listenersRef = useRef<(() => void)[]>([]);
 
-  // Monitor connectivity and perform "Lighthouse Pokes"
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
     });
 
-    const interval = setInterval(() => {
-      const peerList = (gun as any)._?.opt?.peers || {};
-      const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
-      setPeerCount(activePeers.length);
-      setIsConnected(activePeers.length > 0);
-      
-      // If we are alone, try to re-poke the mesh
-      if (activePeers.length === 0) {
-        console.debug("Re-bootstrapping mesh...");
-        peers.forEach(p => (gun as any).opt({peers: [p]}));
-      }
-    }, 3000);
+    // Monitor Firebase connection state
+    const connectedRef = ref(db, ".info/connected");
+    const unsubscribe = onValue(connectedRef, (snap) => {
+      setIsConnected(snap.val() === true);
+    });
 
-    return () => clearInterval(interval);
+    return () => {
+      unsubscribe();
+      listenersRef.current.forEach(offFn => offFn());
+    };
   }, []);
 
   useEffect(() => {
@@ -69,80 +61,75 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const syncRoom = useCallback((code: string) => {
-    if (!gun) return;
-    
-    if (roomNodeRef.current) {
-      roomNodeRef.current.off();
-      seenMessages.current.clear();
-    }
+  const clearListeners = () => {
+    listenersRef.current.forEach(offFn => offFn());
+    listenersRef.current = [];
+  };
 
+  const syncRoom = useCallback((code: string) => {
+    clearListeners();
     const cleanCode = code.toUpperCase().trim();
     
-    // LOCKED PERMANENT KEY: No versioning to ensure User A and User B always land in same room
-    const roomKey = `MLB_PRO_DUGOUT_FINAL_${cleanCode}`;
-    roomNodeRef.current = gun.get(roomKey);
-
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Aggressive mesh lookup
-    ['messages', 'members', 'metadata', 'leaderboard'].forEach(node => {
-      roomNodeRef.current.get(node).once(() => {
-        console.debug(`Syncing node: ${node}`);
-      });
+    const roomRef = ref(db, `rooms/${cleanCode}`);
+    const messagesRef = query(ref(db, `rooms/${cleanCode}/messages`), limitToLast(100));
+    const membersRef = ref(db, `rooms/${cleanCode}/members`);
+    const metaRef = ref(db, `rooms/${cleanCode}/metadata`);
+    const leaderboardRef = ref(db, `rooms/${cleanCode}/leaderboard`);
+
+    // Sync Messages
+    const msgUnsubscribe = onValue(ref(db, `rooms/${cleanCode}/messages`), (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const messageList = Object.entries(data).map(([id, val]: [string, any]) => ({
+          ...val,
+          id
+        })).sort((a, b) => a.timestamp - b.timestamp);
+        setChatRoom(prev => ({ ...prev, messages: messageList }));
+      }
     });
-
-    // Message stream with strict dedup
-    roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
-      if (!msg || seenMessages.current.has(id)) return;
-      seenMessages.current.add(id);
-
-      setChatRoom(prev => {
-        if (prev.messages.some(m => m.id === id)) return prev;
-        const newMessages = [...prev.messages, { ...msg, id }]
-          .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100);
-        return { ...prev, messages: newMessages };
-      });
-    });
-
-    // Roster sync
-    roomNodeRef.current.get('members').map().on((member: any, id: string) => {
-      setChatRoom(prev => {
-        if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
-        const others = prev.members.filter(m => m.id !== id);
-        return { ...prev, members: [...others, { ...member, id }] };
-      });
-    });
-
-    // Settings sync
-    roomNodeRef.current.get('metadata').on((meta: any) => {
-      if (meta && meta.name) {
-        setChatRoom(prev => ({ ...prev, name: meta.name }));
+    
+    // Sync Roster
+    const memberUnsubscribe = onValue(membersRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const memberList = Object.entries(data).map(([id, val]: [string, any]) => ({
+          ...val,
+          id
+        }));
+        setChatRoom(prev => ({ ...prev, members: memberList }));
+      } else {
+        setChatRoom(prev => ({ ...prev, members: [] }));
       }
     });
 
-    // Leaderboard sync
-    ['derby', 'heat', 'stealer'].forEach(game => {
-      roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
-        if (!entry) return;
-        setChatRoom(prev => {
-          const currentList = [...prev.leaderboard[game as keyof typeof prev.leaderboard]];
-          const existingIndex = currentList.findIndex(e => e.userId === entry.userId);
-          
-          if (existingIndex > -1) {
-            const isBetter = game === 'heat' ? entry.score < currentList[existingIndex].score : entry.score > currentList[existingIndex].score;
-            if (isBetter) currentList[existingIndex] = entry;
-            else return prev;
-          } else {
-            currentList.push(entry);
-          }
+    // Sync Metadata (Room Name)
+    const metaUnsubscribe = onValue(metaRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data && data.name) {
+        setChatRoom(prev => ({ ...prev, name: data.name }));
+      }
+    });
 
-          const sorted = currentList.sort((a, b) => game === 'heat' ? a.score - b.score : b.score - a.score).slice(0, 10);
-          return { ...prev, leaderboard: { ...prev.leaderboard, [game]: sorted } };
+    // Sync Leaderboards
+    const lbUnsubscribe = onValue(leaderboardRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      setChatRoom(prev => {
+        const newLB = { ...prev.leaderboard };
+        ['derby', 'heat', 'stealer'].forEach(game => {
+          if (data[game]) {
+            newLB[game as keyof typeof newLB] = Object.values(data[game])
+              .sort((a: any, b: any) => game === 'heat' ? a.score - b.score : b.score - a.score)
+              .slice(0, 10) as LeaderboardEntry[];
+          }
         });
+        return { ...prev, leaderboard: newLB };
       });
     });
+
+    // Store unsubs for cleanup
+    listenersRef.current = [() => off(ref(db, `rooms/${cleanCode}/messages`)), () => off(membersRef), () => off(metaRef), () => off(leaderboardRef)];
   }, []);
 
   const handleAuth = (email: string, name: string) => {
@@ -168,8 +155,8 @@ const App: React.FC = () => {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
       
-      // Update presence
-      roomNodeRef.current.get('members').get(currentUser.id).put({
+      // Add to roster
+      set(ref(db, `rooms/${cleanCode}/members/${currentUser.id}`), {
         email: currentUser.email,
         name: currentUser.name,
         role: currentUser.role,
@@ -183,16 +170,16 @@ const App: React.FC = () => {
   };
 
   const updateUserName = (newName: string) => {
-    if (!currentUser || !roomNodeRef.current) return;
+    if (!currentUser || !chatRoom.code) return;
     const updatedUser = { ...currentUser, name: newName.trim() };
     setCurrentUser(updatedUser);
     saveCurrentUser(updatedUser);
-    roomNodeRef.current.get('members').get(currentUser.id).put({ name: newName.trim() });
+    set(ref(db, `rooms/${chatRoom.code}/members/${currentUser.id}/name`), newName.trim());
   };
 
   const saveScore = (game: 'derby' | 'heat' | 'stealer', score: number) => {
-    if (!currentUser || !roomNodeRef.current) return;
-    roomNodeRef.current.get('leaderboard').get(game).get(currentUser.id).put({
+    if (!currentUser || !chatRoom.code) return;
+    set(ref(db, `rooms/${chatRoom.code}/leaderboard/${game}/${currentUser.id}`), {
       userId: currentUser.id,
       userName: currentUser.name,
       score,
@@ -201,37 +188,40 @@ const App: React.FC = () => {
   };
 
   const sendMessage = useCallback((content: string) => {
-    if (!currentUser || !roomNodeRef.current) return;
+    if (!currentUser || !chatRoom.code) return;
     
     const now = Date.now();
-    if (now - lastSentTime.current < 500) return; // Faster throttle for better feel
+    if (now - lastSentTime.current < 400) return; 
     lastSentTime.current = now;
 
-    const msgId = `m_${now}_${Math.random().toString(36).substr(2, 4)}`;
-    roomNodeRef.current.get('messages').get(msgId).put({
+    const messagesRef = ref(db, `rooms/${chatRoom.code}/messages`);
+    push(messagesRef, {
       senderId: currentUser.id,
       senderName: currentUser.name,
-      content: content.trim(),
+      content: content.trim().slice(0, 1000),
       timestamp: now
     });
-  }, [currentUser]);
+  }, [currentUser, chatRoom.code]);
 
   const updateRoomName = (newName: string) => {
-    if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
-    roomNodeRef.current.get('metadata').put({ name: newName });
+    if (currentUser?.role !== 'admin' || !chatRoom.code) return;
+    set(ref(db, `rooms/${chatRoom.code}/metadata/name`), newName);
   };
 
   const removeMember = (userId: string) => {
-    if (currentUser?.role !== 'admin' || !roomNodeRef.current) return;
-    roomNodeRef.current.get('members').get(userId).put(null);
+    if (currentUser?.role !== 'admin' || !chatRoom.code) return;
+    remove(ref(db, `rooms/${chatRoom.code}/members/${userId}`));
   };
 
   const handleLogout = () => {
+    if (currentUser && chatRoom.code) {
+      remove(ref(db, `rooms/${chatRoom.code}/members/${currentUser.id}`));
+    }
     clearAppData();
     setCurrentUser(null);
     setChatRoom(INITIAL_CHAT_ROOM);
     setView(AppState.AUTH);
-    if (roomNodeRef.current) roomNodeRef.current.off();
+    clearListeners();
   };
 
   return (
@@ -239,13 +229,13 @@ const App: React.FC = () => {
       {view === AppState.CHAT && (
         <div className="fixed top-4 right-4 z-[150] flex flex-col items-end space-y-2 pointer-events-none transition-all duration-300">
           <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-2xl">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-rose-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-              {isConnected ? `MESH ONLINE (${peerCount})` : 'SYNCING MESH...'}
+              {isConnected ? 'FIREBASE LIVE' : 'CONNECTING...'}
             </span>
           </div>
           <div className="bg-slate-900/60 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
-             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">PROTO: {chatRoom.code}-LOCKED</span>
+             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">CLOUD-SYNC: {chatRoom.code}</span>
           </div>
         </div>
       )}
