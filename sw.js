@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mlb-chat-v30-firebase-core';
+const CACHE_NAME = 'mlb-chat-v31-firebase-fix';
 const ASSETS = [
   './',
   'index.html',
@@ -31,7 +31,8 @@ self.addEventListener('fetch', (event) => {
   // Bypass cache for Firebase traffic
   if (url.hostname.includes('firebaseio.com') || 
       url.hostname.includes('googleapis.com') || 
-      url.hostname.includes('gstatic.com')) return;
+      url.hostname.includes('gstatic.com') ||
+      url.hostname.includes('esm.sh')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

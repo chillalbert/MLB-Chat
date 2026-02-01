@@ -12,6 +12,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyAxFzCWywLPK0BWuUk8yhmONhfoo_FYuGk",
   authDomain: "mailbagchatsportssquare.firebaseapp.com",
   projectId: "mailbagchatsportssquare",
+  databaseURL: "https://mailbagchatsportssquare-default-rtdb.firebaseio.com",
   storageBucket: "mailbagchatsportssquare.firebasestorage.app",
   messagingSenderId: "621911267037",
   appId: "1:621911267037:web:3c66a200cbcd9765542d34",
@@ -41,7 +42,8 @@ const App: React.FC = () => {
     // Monitor Firebase connection state
     const connectedRef = ref(db, ".info/connected");
     const unsubscribe = onValue(connectedRef, (snap) => {
-      setIsConnected(snap.val() === true);
+      const val = snap.val();
+      setIsConnected(val === true);
     });
 
     return () => {
@@ -72,14 +74,14 @@ const App: React.FC = () => {
     
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    const roomRef = ref(db, `rooms/${cleanCode}`);
     const messagesRef = query(ref(db, `rooms/${cleanCode}/messages`), limitToLast(100));
     const membersRef = ref(db, `rooms/${cleanCode}/members`);
     const metaRef = ref(db, `rooms/${cleanCode}/metadata`);
     const leaderboardRef = ref(db, `rooms/${cleanCode}/leaderboard`);
 
     // Sync Messages
-    const msgUnsubscribe = onValue(ref(db, `rooms/${cleanCode}/messages`), (snapshot) => {
+    const msgRef = ref(db, `rooms/${cleanCode}/messages`);
+    onValue(msgRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const messageList = Object.entries(data).map(([id, val]: [string, any]) => ({
@@ -91,7 +93,7 @@ const App: React.FC = () => {
     });
     
     // Sync Roster
-    const memberUnsubscribe = onValue(membersRef, (snapshot) => {
+    onValue(membersRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const memberList = Object.entries(data).map(([id, val]: [string, any]) => ({
@@ -105,7 +107,7 @@ const App: React.FC = () => {
     });
 
     // Sync Metadata (Room Name)
-    const metaUnsubscribe = onValue(metaRef, (snapshot) => {
+    onValue(metaRef, (snapshot) => {
       const data = snapshot.val();
       if (data && data.name) {
         setChatRoom(prev => ({ ...prev, name: data.name }));
@@ -113,7 +115,7 @@ const App: React.FC = () => {
     });
 
     // Sync Leaderboards
-    const lbUnsubscribe = onValue(leaderboardRef, (snapshot) => {
+    onValue(leaderboardRef, (snapshot) => {
       const data = snapshot.val() || {};
       setChatRoom(prev => {
         const newLB = { ...prev.leaderboard };
@@ -129,7 +131,12 @@ const App: React.FC = () => {
     });
 
     // Store unsubs for cleanup
-    listenersRef.current = [() => off(ref(db, `rooms/${cleanCode}/messages`)), () => off(membersRef), () => off(metaRef), () => off(leaderboardRef)];
+    listenersRef.current = [
+      () => off(msgRef),
+      () => off(membersRef),
+      () => off(metaRef),
+      () => off(leaderboardRef)
+    ];
   }, []);
 
   const handleAuth = (email: string, name: string) => {
