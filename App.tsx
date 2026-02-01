@@ -18,25 +18,27 @@ const App: React.FC = () => {
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
-  // Initialize Gun with high-reliability peers and local persistence
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
     });
 
+    // Upgraded peer list with better reliability
     const peers = [
       'https://gun-manhattan.herokuapp.com/gun',
       'https://peer.wall.org/gun',
       'https://relay.peer.ooo/gun',
-      'https://dletta.herokuapp.com/gun',
-      'https://gun-us.herokuapp.com/gun'
+      'https://gun-us.herokuapp.com/gun',
+      'https://dletta.herokuapp.com/gun'
     ];
 
+    // Initialize Gun with network-first settings
     gunRef.current = Gun({
       peers: peers,
       localStorage: true,
-      retry: 1000
+      radisk: false, // Disable radisk for better browser compatibility in some environments
+      retry: 500
     });
 
     // Monitor peer connections more accurately
@@ -65,31 +67,33 @@ const App: React.FC = () => {
   const syncRoom = useCallback((code: string) => {
     if (!gunRef.current) return;
     
-    // Clean up previous listeners if switching rooms
+    // Cleanup previous node if it exists
     if (roomNodeRef.current) {
       roomNodeRef.current.off();
     }
 
     const cleanCode = code.toUpperCase().trim();
-    // Simplified key for better cross-device matching
-    const roomKey = `mlb_chat_v7_${cleanCode}`;
+    // Unique version string to force fresh sync across different updates if needed
+    const roomKey = `mlb_chat_v8_final_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
+    // Initial state reset for the UI
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Listen for Messages
+    // Real-time Messages Sync
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
+        // Prevent duplicate local state updates
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100);
+          .slice(-100); // Keep last 100 for performance
         return { ...prev, messages: newMessages };
       });
     });
 
-    // Listen for Roster Members
+    // Roster Members Sync
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -98,7 +102,7 @@ const App: React.FC = () => {
       });
     });
 
-    // Listen for Game Records
+    // Records Sync
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -120,7 +124,7 @@ const App: React.FC = () => {
       });
     });
 
-    // Listen for Room Meta (Name)
+    // Metadata Sync
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
@@ -150,7 +154,7 @@ const App: React.FC = () => {
     if (currentUser) {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
-      // Join the roster
+      // Put initial data to ensure the room and member nodes exist
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -214,7 +218,7 @@ const App: React.FC = () => {
         <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
           <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-            {isConnected ? `Live (${peerCount} Peers)` : 'Searching for Peers...'}
+            {isConnected ? `Live (${peerCount} Peers)` : 'Connecting...'}
           </span>
         </div>
       )}

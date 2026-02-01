@@ -64,14 +64,14 @@
     <div id="root"></div>
     <script type="module" src="index.tsx"></script>
     <script>
-      // More robust Service Worker registration to handle sandbox environments
+      // Fixed: Using simple relative path to avoid "Invalid URL" constructor error
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          const swPath = new URL('sw.js', window.location.href).pathname;
-          navigator.serviceWorker.register(swPath).then(reg => {
-            console.log('SW registered');
+          navigator.serviceWorker.register('./sw.js').then(reg => {
+            console.log('SW registered successfully');
           }).catch(err => {
-            console.warn('SW registration skipped or failed:', err.message);
+            // Silently fail in dev environments where SW is restricted
+            console.debug('SW reg skipped:', err.message);
           });
         });
       }
