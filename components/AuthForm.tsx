@@ -18,7 +18,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
   return (
     <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-10 border border-slate-100">
       <div className="text-center mb-10">
-        <h2 className="text-4xl font-black text-slate-900 tracking-tight">SportsSquare</h2>
+        <h2 className="text-4xl font-black text-[#002D72] tracking-tight uppercase italic">MLB Chat</h2>
         <p className="text-slate-400 font-medium mt-3">
           {isLogin ? 'Sign in with your email' : 'Register your player name'}
         </p>
@@ -51,9 +51,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuth }) => {
         </div>
         <button
           type="submit"
-          className="w-full bg-slate-900 text-white font-bold py-5 rounded-2xl shadow-xl shadow-slate-200 transition duration-200 transform active:scale-[0.98] uppercase tracking-widest text-xs"
+          className="w-full mlb-gradient text-white font-bold py-5 rounded-2xl shadow-xl shadow-blue-900/20 transition duration-200 transform active:scale-[0.98] uppercase tracking-widest text-xs"
         >
-          {isLogin ? 'Enter Chat' : 'Create Account'}
+          {isLogin ? 'Enter Dugout' : 'Join the Roster'}
         </button>
       </form>
       

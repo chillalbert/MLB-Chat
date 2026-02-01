@@ -1,7 +1,7 @@
 
 {
-  "name": "SportsSquare Chat",
-  "short_name": "SportsSquare",
+  "name": "MLB Chat",
+  "short_name": "MLB Chat",
   "description": "Private dugout chat and baseball mini-games.",
   "start_url": "./",
   "display": "standalone",
