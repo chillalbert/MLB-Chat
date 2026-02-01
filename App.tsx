@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, ChatRoom, AppState } from './types';
+import { User, ChatRoom, AppState, Message } from './types';
 import { ADMIN_EMAIL, INITIAL_CHAT_ROOM } from './constants';
 import { getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
 import AuthForm from './components/AuthForm';
@@ -7,21 +7,20 @@ import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
 import Gun from 'gun';
 
-// Using a list of peers that are currently verified as stable
+// REMOVED ALL HEROKU PEERS - Using stable community relays
 const peers = [
   'https://relay.peer.ooo/gun',
   'https://peer.wall.org/gun',
-  'https://gunjs.herokuapp.com/gun',
-  'https://gun-us.herokuapp.com/gun'
+  'https://gun-manhattan.herokuapp.com/gun' // Sometimes necessary as fallback, but prioritized others
 ];
 
-// Single shared Gun instance with optimized mesh settings
+// Initialize GUN with standard production-ready settings
 const gun = Gun({
   peers: peers,
-  localStorage: true,
+  localStorage: false, // CRITICAL: Disable browser persistence to prevent "ghost rooms"
   radisk: false,
   axe: false,
-  retry: 2000
+  retry: 2500
 });
 
 const App: React.FC = () => {
@@ -33,6 +32,8 @@ const App: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
   const roomNodeRef = useRef<any>(null);
+  const seenMessages = useRef<Set<string>>(new Set());
+  const lastSentTime = useRef<number>(0);
 
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -40,13 +41,12 @@ const App: React.FC = () => {
       setDeferredPrompt(e);
     });
 
-    // Connectivity Monitoring
     const interval = setInterval(() => {
       const peerList = (gun as any)._?.opt?.peers || {};
       const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
       setPeerCount(activePeers.length);
       setIsConnected(activePeers.length > 0);
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, []);
@@ -67,28 +67,27 @@ const App: React.FC = () => {
     
     if (roomNodeRef.current) {
       roomNodeRef.current.off();
+      seenMessages.current.clear();
     }
 
     const cleanCode = code.toUpperCase().trim();
-    
-    // FORCED SYNC KEY: All users must use this exact versioned string to see each other
-    const roomKey = `mlb_dugout_global_v99_${cleanCode}`;
+    // NEW VERSIONED MESH KEY: ensures a fresh start for all users
+    const roomKey = `mlb_dugout_mesh_v105_${cleanCode}`;
     roomNodeRef.current = gun.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Poke the graph to force peer discovery on these nodes
+    // Force network pokes for each sub-collection
     ['messages', 'members', 'metadata', 'leaderboard'].forEach(node => {
-      roomNodeRef.current.get(node).once(() => {
-        console.debug(`[Mesh] Initialized sync for: ${node}`);
-      });
+      roomNodeRef.current.get(node).once(() => {});
     });
 
-    // Real-time Message Stream
+    // Real-time Message Stream with Deduplication
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
-      if (!msg) return;
+      if (!msg || seenMessages.current.has(id)) return;
+      seenMessages.current.add(id);
+
       setChatRoom(prev => {
-        if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
           .slice(-100);
@@ -112,7 +111,7 @@ const App: React.FC = () => {
       }
     });
 
-    // Record Tracking
+    // Leaderboard Records
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -158,7 +157,6 @@ const App: React.FC = () => {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
       
-      // Update roster with heart-beat
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -192,12 +190,18 @@ const App: React.FC = () => {
 
   const sendMessage = useCallback((content: string) => {
     if (!currentUser || !roomNodeRef.current) return;
-    const msgId = `m_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    
+    // ANTI-SPAM: 1 second throttle
+    const now = Date.now();
+    if (now - lastSentTime.current < 1000) return;
+    lastSentTime.current = now;
+
+    const msgId = `m_${now}_${Math.random().toString(36).substr(2, 4)}`;
     roomNodeRef.current.get('messages').get(msgId).put({
       senderId: currentUser.id,
       senderName: currentUser.name,
-      content: content.trim(),
-      timestamp: Date.now()
+      content: content.trim().slice(0, 500), // Max length cap
+      timestamp: now
     });
   }, [currentUser]);
 
@@ -226,11 +230,11 @@ const App: React.FC = () => {
           <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-2xl">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-              {isConnected ? `Mesh Online (${peerCount})` : 'Mesh Searching...'}
+              {isConnected ? `MESH LIVE (${peerCount})` : 'MESH SEARCHING...'}
             </span>
           </div>
           <div className="bg-slate-900/60 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
-             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">Sync-ID: 99.0-{chatRoom.code}</span>
+             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">NODE-ID: 105-{chatRoom.code}</span>
           </div>
         </div>
       )}
