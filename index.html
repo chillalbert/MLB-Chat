@@ -64,13 +64,11 @@
     <div id="root"></div>
     <script type="module" src="index.tsx"></script>
     <script>
-      // Fixed: Using simple relative path to avoid "Invalid URL" constructor error
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('./sw.js').then(reg => {
             console.log('SW registered successfully');
           }).catch(err => {
-            // Silently fail in dev environments where SW is restricted
             console.debug('SW reg skipped:', err.message);
           });
         });

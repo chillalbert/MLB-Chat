@@ -1,11 +1,31 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, ChatRoom, AppState, LeaderboardEntry } from './types';
+import { User, ChatRoom, AppState } from './types';
 import { ADMIN_EMAIL, INITIAL_CHAT_ROOM } from './constants';
 import { getCurrentUser, saveCurrentUser, clearAppData } from './services/storage';
 import AuthForm from './components/AuthForm';
 import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
 import Gun from 'gun';
+
+// Diversified peer network to ensure connection regardless of individual relay downtime
+const peers = [
+  'https://gun-manhattan.herokuapp.com/gun',
+  'https://peer.wall.org/gun',
+  'https://relay.peer.ooo/gun',
+  'https://gun-us.herokuapp.com/gun',
+  'https://gun-eu.herokuapp.com/gun',
+  'https://dletta.herokuapp.com/gun',
+  'https://gunjs.herokuapp.com/gun',
+  'https://mg-gun-manhattan.herokuapp.com/gun'
+];
+
+// Initialize Gun as a singleton with optimized browser settings
+const gun = Gun({
+  peers: peers,
+  localStorage: true,
+  radisk: false, // Prevents certain locking issues in mobile Safari/Chrome
+  retry: 500 // Faster reconnection attempts
+});
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -15,7 +35,6 @@ const App: React.FC = () => {
   const [peerCount, setPeerCount] = useState(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
-  const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
   useEffect(() => {
@@ -24,27 +43,9 @@ const App: React.FC = () => {
       setDeferredPrompt(e);
     });
 
-    // Upgraded peer list with better reliability
-    const peers = [
-      'https://gun-manhattan.herokuapp.com/gun',
-      'https://peer.wall.org/gun',
-      'https://relay.peer.ooo/gun',
-      'https://gun-us.herokuapp.com/gun',
-      'https://dletta.herokuapp.com/gun'
-    ];
-
-    // Initialize Gun with network-first settings
-    gunRef.current = Gun({
-      peers: peers,
-      localStorage: true,
-      radisk: false, // Disable radisk for better browser compatibility in some environments
-      retry: 500
-    });
-
-    // Monitor peer connections more accurately
+    // Monitor peer health and count
     const interval = setInterval(() => {
-      if (!gunRef.current) return;
-      const peerList = (gunRef.current as any)._?.opt?.peers || {};
+      const peerList = (gun as any)._?.opt?.peers || {};
       const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
       setPeerCount(activePeers.length);
       setIsConnected(activePeers.length > 0);
@@ -65,35 +66,38 @@ const App: React.FC = () => {
   }, []);
 
   const syncRoom = useCallback((code: string) => {
-    if (!gunRef.current) return;
+    if (!gun) return;
     
-    // Cleanup previous node if it exists
+    // Clear previous room node listeners
     if (roomNodeRef.current) {
       roomNodeRef.current.off();
     }
 
     const cleanCode = code.toUpperCase().trim();
-    // Unique version string to force fresh sync across different updates if needed
-    const roomKey = `mlb_chat_v8_final_${cleanCode}`;
-    roomNodeRef.current = gunRef.current.get(roomKey);
+    // Unique key for the latest stable sync version
+    const roomKey = `mlb_dugout_v10_final_${cleanCode}`;
+    roomNodeRef.current = gun.get(roomKey);
 
-    // Initial state reset for the UI
+    // Initial state cleanup
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Real-time Messages Sync
+    // Force-sync (Poke) nodes across the mesh network
+    ['messages', 'members', 'leaderboard', 'metadata'].forEach(node => {
+        roomNodeRef.current.get(node).once(() => {});
+    });
+
+    // Sub-listeners for real-time updates
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
-        // Prevent duplicate local state updates
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-100); // Keep last 100 for performance
+          .slice(-150); // Increased buffer for better chat history
         return { ...prev, messages: newMessages };
       });
     });
 
-    // Roster Members Sync
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -102,7 +106,6 @@ const App: React.FC = () => {
       });
     });
 
-    // Records Sync
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -118,13 +121,12 @@ const App: React.FC = () => {
             currentList.push(entry);
           }
 
-          const sorted = currentList.sort((a, b) => game === 'heat' ? a.score - b.score : b.score - a.score).slice(0, 5);
+          const sorted = currentList.sort((a, b) => game === 'heat' ? a.score - b.score : b.score - a.score).slice(0, 10);
           return { ...prev, leaderboard: { ...prev.leaderboard, [game]: sorted } };
         });
       });
     });
 
-    // Metadata Sync
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
@@ -154,12 +156,13 @@ const App: React.FC = () => {
     if (currentUser) {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
-      // Put initial data to ensure the room and member nodes exist
+      // Announce presence in the room roster
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
         role: currentUser.role,
-        id: currentUser.id
+        id: currentUser.id,
+        lastSeen: Date.now()
       });
       setView(AppState.CHAT);
     }
@@ -215,10 +218,10 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none">
+        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none transition-all duration-300">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
           <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-            {isConnected ? `Live (${peerCount} Peers)` : 'Connecting...'}
+            {isConnected ? `Live (${peerCount})` : 'Mesh Syncing...'}
           </span>
         </div>
       )}
