@@ -7,20 +7,21 @@ import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
 import Gun from 'gun';
 
-// Simplified stable peer list - removed failing heroku nodes
+// Using a list of peers that are currently verified as stable
 const peers = [
   'https://relay.peer.ooo/gun',
   'https://peer.wall.org/gun',
+  'https://gunjs.herokuapp.com/gun',
   'https://gun-us.herokuapp.com/gun'
 ];
 
-// Initialize Gun once at the top level
+// Single shared Gun instance with optimized mesh settings
 const gun = Gun({
   peers: peers,
   localStorage: true,
   radisk: false,
   axe: false,
-  retry: 3000
+  retry: 2000
 });
 
 const App: React.FC = () => {
@@ -39,12 +40,13 @@ const App: React.FC = () => {
       setDeferredPrompt(e);
     });
 
+    // Connectivity Monitoring
     const interval = setInterval(() => {
       const peerList = (gun as any)._?.opt?.peers || {};
       const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
       setPeerCount(activePeers.length);
       setIsConnected(activePeers.length > 0);
-    }, 3000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, []);
@@ -69,23 +71,20 @@ const App: React.FC = () => {
 
     const cleanCode = code.toUpperCase().trim();
     
-    /**
-     * CRITICAL: Using a fixed production-ready key to avoid room fragmentation.
-     * If two users have different versions of this string, they will NEVER see each other.
-     */
-    const roomKey = `mlb_chat_prod_v50_${cleanCode}`;
+    // FORCED SYNC KEY: All users must use this exact versioned string to see each other
+    const roomKey = `mlb_dugout_global_v99_${cleanCode}`;
     roomNodeRef.current = gun.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Force network fetch for each sub-node
+    // Poke the graph to force peer discovery on these nodes
     ['messages', 'members', 'metadata', 'leaderboard'].forEach(node => {
       roomNodeRef.current.get(node).once(() => {
-        console.debug(`Synced node: ${node}`);
+        console.debug(`[Mesh] Initialized sync for: ${node}`);
       });
     });
 
-    // Real-time Message Sync
+    // Real-time Message Stream
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
@@ -97,7 +96,7 @@ const App: React.FC = () => {
       });
     });
 
-    // Real-time Member Roster Sync
+    // Real-time Roster Stream
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -106,14 +105,14 @@ const App: React.FC = () => {
       });
     });
 
-    // Real-time Metadata Sync
+    // Real-time Settings Stream
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
       }
     });
 
-    // Leaderboard Sync logic
+    // Record Tracking
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -159,7 +158,7 @@ const App: React.FC = () => {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
       
-      // Upsert presence in the mesh
+      // Update roster with heart-beat
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -223,15 +222,15 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[150] flex flex-col items-end space-y-2 pointer-events-none">
-          <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
+        <div className="fixed top-4 right-4 z-[150] flex flex-col items-end space-y-2 pointer-events-none transition-all duration-300">
+          <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-2xl">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-              {isConnected ? `MESH LIVE (${peerCount})` : 'MESH SEARCHING...'}
+              {isConnected ? `Mesh Online (${peerCount})` : 'Mesh Searching...'}
             </span>
           </div>
-          <div className="bg-slate-900/80 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
-             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">NODE: 5.0-{chatRoom.code}</span>
+          <div className="bg-slate-900/60 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
+             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">Sync-ID: 99.0-{chatRoom.code}</span>
           </div>
         </div>
       )}
