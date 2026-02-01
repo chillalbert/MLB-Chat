@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 
 interface HomeRunGameProps {
@@ -8,15 +7,15 @@ interface HomeRunGameProps {
 
 const HomeRunGame: React.FC<HomeRunGameProps> = ({ onGameOver, onClose }) => {
   const [gameState, setGameState] = useState<'idle' | 'pitching' | 'hit' | 'miss'>('idle');
-  const [ballPos, setBallPos] = useState(0); // 0 to 100
+  const [ballPos, setBallPos] = useState(0); 
   const [distance, setDistance] = useState(0);
-  const [message, setMessage] = useState('Get Ready!');
+  const [message, setMessage] = useState('GET READY!');
   const ballInterval = useRef<number | null>(null);
 
   const startPitch = () => {
     setGameState('pitching');
     setBallPos(0);
-    setMessage('Here comes the pitch!');
+    setMessage('HERE COMES THE HEAT!');
     
     ballInterval.current = window.setInterval(() => {
       setBallPos(prev => {
@@ -24,7 +23,7 @@ const HomeRunGame: React.FC<HomeRunGameProps> = ({ onGameOver, onClose }) => {
           handleMiss();
           return 100;
         }
-        return prev + 2;
+        return prev + 2.5;
       });
     }, 20);
   };
@@ -33,14 +32,13 @@ const HomeRunGame: React.FC<HomeRunGameProps> = ({ onGameOver, onClose }) => {
     if (gameState !== 'pitching') return;
     if (ballInterval.current) clearInterval(ballInterval.current);
 
-    // Sweet spot is around 85-92
-    if (ballPos >= 80 && ballPos <= 95) {
+    if (ballPos >= 82 && ballPos <= 94) {
       const accuracy = 1 - Math.abs(88 - ballPos) / 10;
       const hitDistance = Math.floor(accuracy * 450 + Math.random() * 50);
       setDistance(hitDistance);
       setGameState('hit');
-      setMessage(`CRACK! ${hitDistance}ft HOME RUN!`);
-      setTimeout(() => onGameOver(hitDistance), 2000);
+      setMessage(`CRACK! ${hitDistance}FT!`);
+      setTimeout(() => onGameOver(hitDistance), 1500);
     } else {
       handleMiss();
     }
@@ -52,70 +50,50 @@ const HomeRunGame: React.FC<HomeRunGameProps> = ({ onGameOver, onClose }) => {
     setMessage('STRIKE!');
     setTimeout(() => {
       setGameState('idle');
-      setMessage('Try again?');
-    }, 1500);
+      setMessage('TRY AGAIN?');
+    }, 1200);
   };
 
   useEffect(() => {
-    return () => {
-      if (ballInterval.current) clearInterval(ballInterval.current);
-    };
+    return () => { if (ballInterval.current) clearInterval(ballInterval.current); };
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl relative">
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-lg bg-slate-900 rounded-[2.5rem] overflow-hidden shadow-3xl border border-slate-800 relative">
         <div className="h-2 mlb-gradient w-full"></div>
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition">
+        <button onClick={onClose} className="absolute top-6 right-6 text-slate-500 hover:text-white transition">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
 
-        <div className="p-8 text-center">
-          <h2 className="text-2xl font-black text-[#002D72] uppercase italic mb-2">Home Run Derby</h2>
-          <p className="text-sm font-bold text-gray-500 mb-8">{message}</p>
+        <div className="p-10 text-center">
+          <h2 className="text-3xl font-black text-white uppercase italic mb-1">HOME RUN DERBY</h2>
+          <p className="text-xs font-black text-indigo-400 mb-8 tracking-[0.2em] uppercase">{message}</p>
 
-          <div className="relative h-64 bg-green-100 rounded-2xl border-4 border-green-200 overflow-hidden mb-8 flex flex-col justify-end pb-12">
-            {/* Pitcher */}
-            <div className="absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center">
-              <div className="w-8 h-8 bg-blue-800 rounded-full mb-1"></div>
-              <div className="w-12 h-16 bg-blue-700 rounded-t-lg"></div>
+          <div className="relative h-72 bg-slate-950 rounded-3xl border-4 border-slate-800 overflow-hidden mb-8 flex flex-col justify-end pb-12 shadow-inner">
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center opacity-40">
+              <div className="w-8 h-8 bg-indigo-500 rounded-full mb-1"></div>
+              <div className="w-12 h-20 bg-indigo-600 rounded-t-xl"></div>
             </div>
 
-            {/* Ball */}
             {gameState === 'pitching' && (
               <div 
-                className="absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-white border border-gray-300 rounded-full shadow-md z-10 transition-all duration-75"
+                className="absolute left-1/2 -translate-x-1/2 w-5 h-5 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] z-10 transition-all duration-75"
                 style={{ top: `${12 + (ballPos / 100) * 70}%`, transform: `translateX(-50%) scale(${0.5 + ballPos/100})` }}
               ></div>
             )}
 
-            {/* Home Plate Area */}
-            <div className="w-full h-12 bg-orange-100 flex items-center justify-center">
-              <div className="w-16 h-4 bg-white shadow-sm rounded-sm"></div>
-            </div>
-
-            {/* Swing Zone indicator */}
-            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-24 h-8 border-2 border-red-400 border-dashed rounded-lg opacity-50"></div>
+            <div className="w-full h-1 bg-slate-800/50"></div>
+            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-32 h-12 border-2 border-indigo-500/20 border-dashed rounded-2xl"></div>
           </div>
 
-          <div className="flex flex-col space-y-4">
-            {gameState === 'idle' ? (
-              <button 
-                onClick={startPitch}
-                className="w-full py-4 mlb-gradient text-white font-black rounded-2xl shadow-xl uppercase tracking-widest hover:scale-[1.02] transition"
-              >
-                Start Pitch
-              </button>
-            ) : (
-              <button 
-                onClick={handleSwing}
-                disabled={gameState !== 'pitching'}
-                className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl shadow-xl uppercase tracking-widest active:bg-black transition disabled:opacity-50"
-              >
-                Swing!
-              </button>
-            )}
-          </div>
+          <button 
+            onClick={gameState === 'idle' ? startPitch : handleSwing}
+            disabled={gameState === 'hit' || gameState === 'miss'}
+            className={`w-full py-5 font-black rounded-2xl shadow-2xl uppercase tracking-widest transition-all active:scale-95 ${gameState === 'idle' ? 'mlb-gradient text-white' : 'bg-white text-slate-950'}`}
+          >
+            {gameState === 'idle' ? 'Start Pitch' : 'Swing!'}
+          </button>
         </div>
       </div>
     </div>
