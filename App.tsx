@@ -13,11 +13,18 @@ const App: React.FC = () => {
   const [chatRoom, setChatRoom] = useState<ChatRoom>(INITIAL_CHAT_ROOM);
   const [view, setView] = useState<AppState>(AppState.AUTH);
   const [isConnected, setIsConnected] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
   useEffect(() => {
+    // PWA Install Prompt Listener
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+
     gunRef.current = Gun({
       peers: [
         'https://gun-manhattan.herokuapp.com/gun',
@@ -48,16 +55,22 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const installApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
+  };
+
   const syncRoom = useCallback((code: string) => {
     if (!gunRef.current) return;
     
     const cleanCode = code.toUpperCase().trim();
-    const roomKey = `ss_v30_prod_${cleanCode}`;
+    const roomKey = `ss_v31_final_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Messages
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
@@ -69,7 +82,6 @@ const App: React.FC = () => {
       });
     });
 
-    // Members
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -78,7 +90,6 @@ const App: React.FC = () => {
       });
     });
 
-    // Leaderboards
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -87,7 +98,6 @@ const App: React.FC = () => {
           const existingIndex = currentList.findIndex(e => e.userId === entry.userId);
           
           if (existingIndex > -1) {
-            // Only update if score is better (High score for derby/stealer, Low for heat)
             const isBetter = game === 'heat' ? entry.score < currentList[existingIndex].score : entry.score > currentList[existingIndex].score;
             if (isBetter) currentList[existingIndex] = entry;
             else return prev;
@@ -188,12 +198,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-0 md:p-6 overflow-hidden">
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
         <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-sm pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500'}`}></div>
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            {isConnected ? 'Live' : 'Syncing'}
+            {isConnected ? 'Live' : 'Offline'}
           </span>
         </div>
       )}
@@ -210,6 +220,7 @@ const App: React.FC = () => {
           onSaveScore={saveScore}
           onRemoveMember={removeMember}
           onLogout={handleLogout}
+          installPrompt={deferredPrompt ? installApp : undefined}
         />
       )}
     </div>

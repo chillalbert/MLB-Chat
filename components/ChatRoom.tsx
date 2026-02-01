@@ -14,6 +14,7 @@ interface ChatRoomProps {
   onSaveScore: (game: 'derby' | 'heat' | 'stealer', score: number) => void;
   onRemoveMember: (userId: string) => void;
   onLogout: () => void;
+  installPrompt?: () => void;
 }
 
 const ChatRoomComponent: React.FC<ChatRoomProps> = ({
@@ -24,7 +25,8 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
   onUpdateUserName,
   onSaveScore,
   onRemoveMember,
-  onLogout
+  onLogout,
+  installPrompt
 }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
@@ -83,7 +85,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
         ${showMembers ? 'fixed inset-0 flex' : 'hidden md:flex'} 
         w-full md:w-80 flex-col bg-slate-50 border-r border-slate-200 z-[120] md:relative md:z-10
       `}>
-        <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
+        <div className="p-4 safe-pt border-b border-slate-200 bg-white flex justify-between items-center">
           <div className="flex bg-slate-100 p-1 rounded-xl w-full mr-2">
             <button 
               onClick={() => setSidebarTab('lineup')}
@@ -154,14 +156,22 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           )}
         </div>
 
-        <div className="p-6 border-t border-slate-200 bg-white">
+        <div className="p-4 border-t border-slate-200 bg-white space-y-2">
+          {installPrompt && (
+            <button 
+              onClick={installPrompt} 
+              className="w-full bg-indigo-50 text-indigo-700 font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest text-center transition hover:bg-indigo-100 border border-indigo-200"
+            >
+              📥 Download App
+            </button>
+          )}
           <button onClick={onLogout} className="w-full text-slate-400 hover:text-rose-600 font-bold py-2 text-[10px] uppercase tracking-[0.2em] text-center transition">Sign Out</button>
         </div>
       </div>
 
       {/* Main Area */}
       <div className="flex-1 flex flex-col bg-white">
-        <header className="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-20">
+        <header className="px-6 py-5 safe-pt border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-20">
           <div className="flex items-center space-x-4 overflow-hidden">
             <button onClick={() => setShowMembers(true)} className="md:hidden p-2 text-slate-600 bg-slate-100 rounded-xl"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg></button>
             <div className="flex-1 overflow-hidden">
@@ -200,7 +210,7 @@ const ChatRoomComponent: React.FC<ChatRoomProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        <footer className="p-4 bg-white border-t border-slate-100">
+        <footer className="p-4 bg-white border-t border-slate-100 safe-pb">
           <div className="flex sm:hidden justify-center space-x-2 mb-3 overflow-x-auto pb-2">
              <button onClick={() => setActiveGame('derby')} className="bg-slate-900 text-white px-3 py-2 rounded-lg text-[8px] font-black uppercase whitespace-nowrap">⚾ Derby</button>
              <button onClick={() => setActiveGame('heat')} className="mlb-gradient text-white px-3 py-2 rounded-lg text-[8px] font-black uppercase whitespace-nowrap">🔥 Heat</button>

@@ -9,11 +9,16 @@ interface JoinFormProps {
 
 const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
   const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (code) {
-      onJoin(code);
+    const cleanCode = code.trim().toUpperCase();
+    if (cleanCode === 'SQUARE1') {
+      setError(null);
+      onJoin(cleanCode);
+    } else {
+      setError("Don't join - Unauthorized access code.");
     }
   };
 
@@ -24,7 +29,7 @@ const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
       <div className="flex justify-between items-start mb-8">
         <div>
           <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase italic">Welcome, {userName.split(' ')[0]}!</h2>
-          <p className="text-gray-500 text-sm mt-1 font-medium">Player verified. Enter the dugout access code to proceed.</p>
+          <p className="text-gray-500 text-sm mt-1 font-medium">Player verified. Enter the dugout access code.</p>
         </div>
         <button onClick={onLogout} className="p-2 text-gray-400 hover:text-red-600 transition hover:bg-red-50 rounded-xl">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -39,12 +44,20 @@ const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
           <input
             type="text"
             required
-            className="w-full bg-white px-4 py-4 rounded-xl border-2 border-gray-100 focus:border-[#002D72] focus:ring-0 outline-none transition text-center text-3xl font-black tracking-[0.3em] uppercase text-[#002D72]"
-            placeholder="••••••"
+            className={`w-full bg-white px-4 py-4 rounded-xl border-2 focus:ring-0 outline-none transition text-center text-3xl font-black tracking-[0.2em] uppercase ${error ? 'border-red-500 text-red-600 animate-pulse' : 'border-gray-100 text-[#002D72] focus:border-[#002D72]'}`}
+            placeholder="SQUARE1"
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setCode(e.target.value);
+              if (error) setError(null);
+            }}
             autoFocus
           />
+          {error && (
+            <p className="text-red-500 text-[10px] font-black uppercase tracking-widest text-center mt-4">
+              {error}
+            </p>
+          )}
         </div>
         <button
           type="submit"
@@ -59,7 +72,7 @@ const JoinForm: React.FC<JoinFormProps> = ({ userName, onJoin, onLogout }) => {
           <svg className="w-5 h-5 mr-3 flex-shrink-0 text-[#BA0C2F]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
-          Restricted Area: Unauthorized access is strictly prohibited. Access codes are managed by the Room Admin.
+          Restricted Area: Access restricted to active dugout members. Use only valid project codes.
         </p>
       </div>
     </div>
