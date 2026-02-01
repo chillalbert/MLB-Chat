@@ -1,11 +1,10 @@
-const CACHE_NAME = 'mlb-chat-v6';
+const CACHE_NAME = 'mlb-chat-v7';
 const ASSETS = [
   './',
   'index.html',
   'manifest.json',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap',
-  'https://cdn-icons-png.flaticon.com/512/3370/3370832.png'
+  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
 ];
 
 self.addEventListener('install', (event) => {
@@ -29,20 +28,17 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
   const url = new URL(event.request.url);
-  // Do not intercept GunJS sync traffic or external dev tools
-  if (url.pathname.includes('/gun') || url.hostname.includes('netlify')) return;
+  // Do NOT intercept GunJS or relay traffic
+  if (url.pathname.includes('/gun') || url.hostname.includes('herokuapp') || url.hostname.includes('peer')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const cacheCopy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cacheCopy));
-        }
-        return networkResponse;
-      }).catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
+      return cachedResponse || fetch(event.request).then((response) => {
+        if (!response || response.status !== 200) return response;
+        const respClone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, respClone));
+        return response;
+      }).catch(() => null);
     })
   );
 });

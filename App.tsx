@@ -12,38 +12,43 @@ const App: React.FC = () => {
   const [chatRoom, setChatRoom] = useState<ChatRoom>(INITIAL_CHAT_ROOM);
   const [view, setView] = useState<AppState>(AppState.AUTH);
   const [isConnected, setIsConnected] = useState(false);
+  const [peerCount, setPeerCount] = useState(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
   const gunRef = useRef<any>(null);
   const roomNodeRef = useRef<any>(null);
 
+  // Initialize Gun with high-reliability peers and local persistence
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
     });
 
-    // Stabilized peer list with multiple fallbacks
+    const peers = [
+      'https://gun-manhattan.herokuapp.com/gun',
+      'https://peer.wall.org/gun',
+      'https://relay.peer.ooo/gun',
+      'https://dletta.herokuapp.com/gun',
+      'https://gun-us.herokuapp.com/gun'
+    ];
+
     gunRef.current = Gun({
-      peers: [
-        'https://gun-manhattan.herokuapp.com/gun',
-        'https://peer.wall.org/gun',
-        'https://relay.peer.ooo/gun',
-        'https://gunjs.herokuapp.com/gun',
-        'https://dletta.herokuapp.com/gun',
-        'https://gun-us.herokuapp.com/gun'
-      ],
+      peers: peers,
       localStorage: true,
-      radisk: true // Local storage adapter for offline persistence
+      retry: 1000
     });
 
-    const checkConn = setInterval(() => {
-      const peers = (gunRef.current as any)._?.opt?.peers || {};
-      const active = Object.values(peers).some((p: any) => p.wire && p.wire.readyState === 1);
-      setIsConnected(active);
-    }, 3000);
+    // Monitor peer connections more accurately
+    const interval = setInterval(() => {
+      if (!gunRef.current) return;
+      const peerList = (gunRef.current as any)._?.opt?.peers || {};
+      const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
+      setPeerCount(activePeers.length);
+      setIsConnected(activePeers.length > 0);
+    }, 2000);
 
-    return () => clearInterval(checkConn);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -57,33 +62,34 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const installApp = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setDeferredPrompt(null);
-  };
-
   const syncRoom = useCallback((code: string) => {
     if (!gunRef.current) return;
     
+    // Clean up previous listeners if switching rooms
+    if (roomNodeRef.current) {
+      roomNodeRef.current.off();
+    }
+
     const cleanCode = code.toUpperCase().trim();
-    const roomKey = `mlb_dugout_v3_stable_${cleanCode}`;
+    // Simplified key for better cross-device matching
+    const roomKey = `mlb_chat_v7_${cleanCode}`;
     roomNodeRef.current = gunRef.current.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
+    // Listen for Messages
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg) return;
       setChatRoom(prev => {
         if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
-          .slice(-80);
+          .slice(-100);
         return { ...prev, messages: newMessages };
       });
     });
 
+    // Listen for Roster Members
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -92,6 +98,7 @@ const App: React.FC = () => {
       });
     });
 
+    // Listen for Game Records
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -113,6 +120,7 @@ const App: React.FC = () => {
       });
     });
 
+    // Listen for Room Meta (Name)
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
@@ -142,6 +150,7 @@ const App: React.FC = () => {
     if (currentUser) {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
+      // Join the roster
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -202,10 +211,10 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-6 overflow-hidden safe-pb">
       {view === AppState.CHAT && (
-        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none transition-all">
+        <div className="fixed top-4 right-4 z-[150] flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-xl pointer-events-none">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
           <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-            {isConnected ? 'Live' : 'Syncing'}
+            {isConnected ? `Live (${peerCount} Peers)` : 'Searching for Peers...'}
           </span>
         </div>
       )}
@@ -222,7 +231,12 @@ const App: React.FC = () => {
           onSaveScore={saveScore}
           onRemoveMember={removeMember}
           onLogout={handleLogout}
-          installPrompt={deferredPrompt ? installApp : undefined}
+          installPrompt={deferredPrompt ? () => {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then((choice: any) => {
+               if (choice.outcome === 'accepted') setDeferredPrompt(null);
+            });
+          } : undefined}
         />
       )}
     </div>

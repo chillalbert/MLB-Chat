@@ -64,13 +64,14 @@
     <div id="root"></div>
     <script type="module" src="index.tsx"></script>
     <script>
+      // More robust Service Worker registration to handle sandbox environments
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          // Using a path-relative string to ensure registration matches the current location
-          navigator.serviceWorker.register('sw.js').then(reg => {
-            console.log('SW registered successfully');
+          const swPath = new URL('sw.js', window.location.href).pathname;
+          navigator.serviceWorker.register(swPath).then(reg => {
+            console.log('SW registered');
           }).catch(err => {
-            console.warn('SW registration failed (likely dev environment):', err.message);
+            console.warn('SW registration skipped or failed:', err.message);
           });
         });
       }
