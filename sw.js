@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mlb-chat-v21-non-heroku';
+const CACHE_NAME = 'mlb-chat-v25-sync-lock';
 const ASSETS = [
   './',
   'index.html',
@@ -28,7 +28,6 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
   const url = new URL(event.request.url);
-  // Bypass cache for GunDB traffic
   if (url.pathname.includes('/gun') || 
       url.hostname.includes('herokuapp') || 
       url.hostname.includes('peer') || 

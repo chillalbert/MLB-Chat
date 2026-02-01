@@ -7,20 +7,20 @@ import JoinForm from './components/JoinForm';
 import ChatRoomComponent from './components/ChatRoom';
 import Gun from 'gun';
 
-// REMOVED ALL HEROKU PEERS - Using stable community relays
+// HIGH-RELIABILITY STABLE PEERS (Non-Heroku primary)
 const peers = [
   'https://relay.peer.ooo/gun',
   'https://peer.wall.org/gun',
-  'https://gun-manhattan.herokuapp.com/gun' // Sometimes necessary as fallback, but prioritized others
+  'https://gun-manhattan.herokuapp.com/gun' // Manhattan is the most stable legacy node
 ];
 
-// Initialize GUN with standard production-ready settings
+// Singleton Gun instance
 const gun = Gun({
   peers: peers,
-  localStorage: false, // CRITICAL: Disable browser persistence to prevent "ghost rooms"
+  localStorage: false, // Prevent stale browser data from hijacking the room
   radisk: false,
   axe: false,
-  retry: 2500
+  retry: 1500
 });
 
 const App: React.FC = () => {
@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const seenMessages = useRef<Set<string>>(new Set());
   const lastSentTime = useRef<number>(0);
 
+  // Monitor connectivity and perform "Lighthouse Pokes"
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -46,6 +47,12 @@ const App: React.FC = () => {
       const activePeers = Object.values(peerList).filter((p: any) => p.wire && p.wire.readyState === 1);
       setPeerCount(activePeers.length);
       setIsConnected(activePeers.length > 0);
+      
+      // If we are alone, try to re-poke the mesh
+      if (activePeers.length === 0) {
+        console.debug("Re-bootstrapping mesh...");
+        peers.forEach(p => (gun as any).opt({peers: [p]}));
+      }
     }, 3000);
 
     return () => clearInterval(interval);
@@ -71,23 +78,27 @@ const App: React.FC = () => {
     }
 
     const cleanCode = code.toUpperCase().trim();
-    // NEW VERSIONED MESH KEY: ensures a fresh start for all users
-    const roomKey = `mlb_dugout_mesh_v105_${cleanCode}`;
+    
+    // LOCKED PERMANENT KEY: No versioning to ensure User A and User B always land in same room
+    const roomKey = `MLB_PRO_DUGOUT_FINAL_${cleanCode}`;
     roomNodeRef.current = gun.get(roomKey);
 
     setChatRoom(prev => ({ ...prev, code: cleanCode, messages: [], members: [] }));
 
-    // Force network pokes for each sub-collection
+    // Aggressive mesh lookup
     ['messages', 'members', 'metadata', 'leaderboard'].forEach(node => {
-      roomNodeRef.current.get(node).once(() => {});
+      roomNodeRef.current.get(node).once(() => {
+        console.debug(`Syncing node: ${node}`);
+      });
     });
 
-    // Real-time Message Stream with Deduplication
+    // Message stream with strict dedup
     roomNodeRef.current.get('messages').map().on((msg: any, id: string) => {
       if (!msg || seenMessages.current.has(id)) return;
       seenMessages.current.add(id);
 
       setChatRoom(prev => {
+        if (prev.messages.some(m => m.id === id)) return prev;
         const newMessages = [...prev.messages, { ...msg, id }]
           .sort((a, b) => a.timestamp - b.timestamp)
           .slice(-100);
@@ -95,7 +106,7 @@ const App: React.FC = () => {
       });
     });
 
-    // Real-time Roster Stream
+    // Roster sync
     roomNodeRef.current.get('members').map().on((member: any, id: string) => {
       setChatRoom(prev => {
         if (!member) return { ...prev, members: prev.members.filter(m => m.id !== id) };
@@ -104,14 +115,14 @@ const App: React.FC = () => {
       });
     });
 
-    // Real-time Settings Stream
+    // Settings sync
     roomNodeRef.current.get('metadata').on((meta: any) => {
       if (meta && meta.name) {
         setChatRoom(prev => ({ ...prev, name: meta.name }));
       }
     });
 
-    // Leaderboard Records
+    // Leaderboard sync
     ['derby', 'heat', 'stealer'].forEach(game => {
       roomNodeRef.current.get('leaderboard').get(game).map().on((entry: any, id: string) => {
         if (!entry) return;
@@ -157,6 +168,7 @@ const App: React.FC = () => {
       const cleanCode = code.toUpperCase().trim();
       syncRoom(cleanCode);
       
+      // Update presence
       roomNodeRef.current.get('members').get(currentUser.id).put({
         email: currentUser.email,
         name: currentUser.name,
@@ -191,16 +203,15 @@ const App: React.FC = () => {
   const sendMessage = useCallback((content: string) => {
     if (!currentUser || !roomNodeRef.current) return;
     
-    // ANTI-SPAM: 1 second throttle
     const now = Date.now();
-    if (now - lastSentTime.current < 1000) return;
+    if (now - lastSentTime.current < 500) return; // Faster throttle for better feel
     lastSentTime.current = now;
 
     const msgId = `m_${now}_${Math.random().toString(36).substr(2, 4)}`;
     roomNodeRef.current.get('messages').get(msgId).put({
       senderId: currentUser.id,
       senderName: currentUser.name,
-      content: content.trim().slice(0, 500), // Max length cap
+      content: content.trim(),
       timestamp: now
     });
   }, [currentUser]);
@@ -230,11 +241,11 @@ const App: React.FC = () => {
           <div className="flex items-center space-x-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 shadow-2xl">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-amber-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-              {isConnected ? `MESH LIVE (${peerCount})` : 'MESH SEARCHING...'}
+              {isConnected ? `MESH ONLINE (${peerCount})` : 'SYNCING MESH...'}
             </span>
           </div>
           <div className="bg-slate-900/60 backdrop-blur-sm px-2 py-1 rounded-md border border-slate-800/50">
-             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">NODE-ID: 105-{chatRoom.code}</span>
+             <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">PROTO: {chatRoom.code}-LOCKED</span>
           </div>
         </div>
       )}
